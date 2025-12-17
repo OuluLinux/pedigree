@@ -125,6 +125,16 @@ void Cord::prepend(const char *s, size_t len)
     m_Length += len;
 }
 
+void Cord::append(const String &str)
+{
+    append(str.cstr(), str.length());
+}
+
+void Cord::prepend(const String &str)
+{
+    prepend(str.cstr(), str.length());
+}
+
 Cord::CordIterator Cord::begin() const
 {
     return Cord::CordIterator(*this);
@@ -135,13 +145,25 @@ Cord::CordIterator Cord::end() const
     return Cord::CordIterator(*this, true);
 }
 
+Cord::CordSegmentIterator Cord::segbegin() const
+{
+    return Cord::CordSegmentIterator(*this);
+}
+
+Cord::CordSegmentIterator Cord::segend() const
+{
+    return Cord::CordSegmentIterator(*this, true);
+}
+
 Cord::CordIterator::CordIterator(const Cord &owner) : cord(owner), segment(0), index(0)
 {
+    segptr = &cord.m_Segments[segment];
 }
 
 Cord::CordIterator::CordIterator(const Cord &owner, bool end) : cord(owner), segment(0), index(0)
 {
     segment = owner.m_Segments.count();
+    segptr = nullptr;
 }
 
 Cord::CordIterator::~CordIterator() = default;
@@ -149,10 +171,12 @@ Cord::CordIterator::~CordIterator() = default;
 Cord::CordIterator &Cord::CordIterator::operator++()
 {
     ++index;
-    if (index >= cord.m_Segments[segment].length)
+    if (index >= segptr->length)
     {
         index = 0;
         ++segment;
+
+        segptr = &cord.m_Segments[segment];
     }
 
     if (segment > cord.m_Segments.count())
@@ -173,7 +197,8 @@ Cord::CordIterator &Cord::CordIterator::operator--()
     else if (segment)
     {
         --segment;
-        index = cord.m_Segments[segment].length;
+        segptr = &cord.m_Segments[segment];
+        index = segptr->length;
     }
 
     return *this;
@@ -181,7 +206,7 @@ Cord::CordIterator &Cord::CordIterator::operator--()
 
 char Cord::CordIterator::operator*() const
 {
-    return cord.m_Segments[segment].ptr[index];
+    return segptr->ptr[index];
 }
 
 bool Cord::CordIterator::operator==(const CordIterator &other) const
@@ -190,6 +215,59 @@ bool Cord::CordIterator::operator==(const CordIterator &other) const
 }
 
 bool Cord::CordIterator::operator!=(const CordIterator &other) const
+{
+    return !(*this == other);
+}
+
+Cord::CordSegmentIterator::CordSegmentIterator(const Cord &owner) : cord(owner), segment(0)
+{
+}
+
+Cord::CordSegmentIterator::CordSegmentIterator(const Cord &owner, bool end) : cord(owner), segment(0)
+{
+    segment = owner.m_Segments.count();
+}
+
+Cord::CordSegmentIterator::~CordSegmentIterator() = default;
+
+Cord::CordSegmentIterator &Cord::CordSegmentIterator::operator++()
+{
+    ++segment;
+
+    if (segment > cord.m_Segments.count())
+    {
+        segment = cord.m_Segments.count();
+    }
+
+    return *this;
+}
+
+Cord::CordSegmentIterator &Cord::CordSegmentIterator::operator--()
+{
+    if (segment)
+    {
+        --segment;
+    }
+
+    return *this;
+}
+
+const char *Cord::CordSegmentIterator::ptr() const
+{
+    return cord.m_Segments[segment].ptr;
+}
+
+size_t Cord::CordSegmentIterator::length() const
+{
+    return cord.m_Segments[segment].length;
+}
+
+bool Cord::CordSegmentIterator::operator==(const CordSegmentIterator &other) const
+{
+    return segment == other.segment;
+}
+
+bool Cord::CordSegmentIterator::operator!=(const CordSegmentIterator &other) const
 {
     return !(*this == other);
 }

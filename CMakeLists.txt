@@ -2,15 +2,17 @@
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
 
 SET(CMAKE_BUILD_TYPE_INIT Debug)
-set (CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(Pedigree)
 cmake_minimum_required(VERSION 3.3)
 
 if (NOT CMAKE_CXX_COMPILER_VERSION)
     # TODO: keep this up to date with checkBuildSystemNoInteractive.pl
-    set(CMAKE_C_COMPILER_VERSION 6.3.0)
-    set(CMAKE_CXX_COMPILER_VERSION 6.3.0)
+    set(CMAKE_C_COMPILER_VERSION 8.3.0)
+    set(CMAKE_CXX_COMPILER_VERSION 8.3.0)
 endif ()
 
 include(CTest)
@@ -22,6 +24,8 @@ find_package(BISON)
 find_package(FLEX)
 find_package(PythonInterp)
 find_program(MKISOFS NAMES mkisofs genisoimage xorriso)
+
+find_library(LIBRT rt)
 
 # No rpath for anything.
 set(CMAKE_SKIP_RPATH TRUE)
@@ -45,6 +49,22 @@ set(PEDIGREE_MULTIPROCESSOR TRUE CACHE BOOL "Enable multiprocessor support for p
 set(PEDIGREE_ACPI TRUE CACHE BOOL "Enable ACPI support for machine targets that support it.")
 set(PEDIGREE_GRAPHICS FALSE CACHE BOOL "Enable graphics, including the graphical splash screen.")
 set(PEDIGREE_TRACK_HIDDEN_SYMBOLS FALSE CACHE BOOL "Enable tracking of hidden symbols, which increases kernel memory usage but dramatically improves debugger backtraces.")
+set(PEDIGREE_PEDANTIC FALSE CACHE BOOL "Enable pedantic mode for some warnings in Pedigree which indicate bad practices, but are otherwise handled correctly by the code emitting the warning.")
+set(PEDIGREE_DEBUGGER_RUN_AT_START FALSE CACHE BOOL "Enter directly into the debugger during startup.")
+set(PEDIGREE_LOG_TO_SERIAL TRUE CACHE BOOL "Emit the kernel log to the serial port.")
+set(PEDIGREE_STATIC_DRIVERS FALSE CACHE BOOL "Link all drivers directly into the kernel instead of loading them at runtime.")
+set(PEDIGREE_STRICT_LOCK_ORDERING FALSE CACHE BOOL "Enforce strict lock ordering for all types of locks in the kernel.")
+set(PEDIGREE_LOGGING TRUE CACHE BOOL "Enable the kernel logging facility.")
+set(PEDIGREE_TRACK_PAGE_ALLOCS FALSE CACHE BOOL "Track physical page allocations in the debugger allocations command.")
+set(PEDIGREE_VERBOSE_MEMORY_MANAGER FALSE CACHE BOOL "Be more verbose in PhysicalMemoryManager.")
+
+# init configuration
+set(PEDIGREE_WITH_INIT TRUE CACHE BOOL "Build and run the init module at startup. It can be useful to skip running init to test without having the system start an entire userspace.")
+
+# Hosted build options
+# TODO: detect HOSTED=1 and cross compiling and error out!
+set(PEDIGREE_HOSTED FALSE CACHE BOOL "Run a hosted kernel build, which is not compatible with a cross-compiled build.")
+set(PEDIGREE_HOSTED_SYSTEM_MALLOC FALSE CACHE BOOL "Use the system malloc instead of Pedigree's in hosted builds.")
 
 # General build options.
 set(PEDIGREE_LTO FALSE CACHE BOOL "Enable LTO.")
@@ -58,7 +78,7 @@ set(PEDIGREE_LIVECD FALSE CACHE BOOL "Build a live CD version of the ISO image, 
 set(PEDIGREE_IMAGESDIR "${CMAKE_SOURCE_DIR}/images/local" CACHE PATH "Directory containing the directory tree to build disk images from.")
 
 # All nasm on x86-based systems
-enable_language(ASM_NASM)
+enable_language(ASM_NASM ASM)
 
 # Fix up nasm command line to not include a default like -f elf (so we can
 # control the bitness of the nasm output)
@@ -70,7 +90,7 @@ cmake_host_system_information(RESULT PEDIGREE_BUILD_HOSTNAME QUERY FQDN)
 # NOTE: don't include optimization flags - they need to be added elsewhere based on input flags.
 set(GENERIC_COMPILE_FLAGS "-fvisibility=hidden" "-pipe")
 set(GENERIC_COMPILE_CFLAGS "-std=gnu99")
-set(GENERIC_COMPILE_CXXFLAGS "-std=gnu++11")
+set(GENERIC_COMPILE_CXXFLAGS "")
 set(GENERIC_LINKFLAGS "-fvisibility=hidden")
 
 if (NOT PEDIGREE_WARNINGS)
@@ -84,7 +104,6 @@ endif ()
 
 if (PEDIGREE_TRAVIS)
     message("We appear to be building on Travis-CI.")
-    add_definitions(-DTRAVIS=1)
 endif ()
 
 if (CMAKE_COMPILER_IS_GNU)
@@ -100,10 +119,11 @@ else ()
 endif ()
 
 # Set up warning flags for the full build.
-set(GENERIC_WARNING_FLAGS "-Wall" "-Wextra" "-Wpointer-arith" "-Wcast-align" "-Wwrite-strings" "-Wno-long-long" "-Wvariadic-macros" "-Wno-unused-parameter" "-Wuninitialized" "-Wstrict-aliasing" "-Wfloat-equal" "-Wundef" "-Wcast-qual" "-Wdisabled-optimization" ${COMPILER_SPECIFIC_WARNINGS})
+# TODO: add "-Wundef" back in
+set(GENERIC_WARNING_FLAGS "-Wall" "-Wextra" "-Wpointer-arith" "-Wcast-align" "-Wwrite-strings" "-Wno-long-long" "-Wvariadic-macros" "-Wno-unused-parameter" "-Wuninitialized" "-Wstrict-aliasing" "-Wfloat-equal" "-Wcast-qual" "-Wdisabled-optimization" ${COMPILER_SPECIFIC_WARNINGS})
 set(GENERIC_WARNING_CFLAGS "-Wnested-externs" "-Wbad-function-cast" ${COMPILER_SPECIFIC_WARNINGS_C})
-set(GENERIC_WARNING_CXXFLAGS "-Wsign-promo" "-Woverloaded-virtual" "-Wnon-virtual-dtor" "-Wctor-dtor-privacy" "-Wabi" ${COMPILER_SPECIFIC_WARNINGS_CXX})
-set(GENERIC_WARNING_DISABLES "-Wno-unused" "-Wno-unused-variable" "-Wno-conversion" "-Wno-format" "-Wno-error=disabled-optimization" "-Wno-error=deprecated-declarations" "-Wno-abi" ${COMPILER_SPECIFIC_WARNING_DISABLES})
+set(GENERIC_WARNING_CXXFLAGS "-Wsign-promo" "-Woverloaded-virtual" "-Wnon-virtual-dtor" "-Wctor-dtor-privacy" "-Wabi" "-Wno-ctor-dtor-privacy" ${COMPILER_SPECIFIC_WARNINGS_CXX})
+set(GENERIC_WARNING_DISABLES "-Wno-unused" "-Wno-unused-variable" "-Wno-conversion" "-Wno-format" "-Wno-error=disabled-optimization" "-Wno-error=deprecated-declarations" "-Wno-abi" "-Wno-address-of-packed-member" ${COMPILER_SPECIFIC_WARNING_DISABLES})
 
 # Prepare flags for all builds across the entire project.
 set(GENERIC_CFLAGS
@@ -171,92 +191,27 @@ if(CMAKE_CROSSCOMPILING)
         set(GENERIC_COMPILE_FLAGS ${GENERIC_COMPILE_FLAGS} -O0)
     endif ()
 
-    if (NOT PEDIGREE_GRAPHICS)
-        add_definitions(-DNOGFX=1)
+    if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
+        # No multiprocessor support for ARM
+        set(PEDIGREE_MULTIPROCESSOR FALSE)
+
+        # Need static drivers for ARM
+        set(PEDIGREE_STATIC_DRIVERS TRUE)
+    elseif (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+        set(PEDIGREE_HOSTED TRUE)
+        set(PEDIGREE_STATIC_DRIVERS TRUE)
     endif ()
 
-    if (PEDIGREE_CRIPPLE_HDD)
-        add_definitions(-DCRIPPLE_HDD=1)
-    endif ()
+    # Copy over all our definitions.
+    configure_file(
+        ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/config.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
-    if (PEDIGREE_DEBUGGER)
-        add_definitions(-DDEBUGGER=1)
-    endif ()
+    # Include the definitions file in every translation unit
+    add_definitions("--include=${CMAKE_CURRENT_BINARY_DIR}/config.h")
 
-    if (PEDIGREE_ADDITIONAL_CHECKS)
-        add_definitions(-DADDITIONAL_CHECKS=1)
-    endif ()
-
-    if (PEDIGREE_EXCESSIVE_ADDITIONAL_CHECKS)
-        add_definitions(-DEXCESSIVE_ADDITIONAL_CHECKS=1)
-    endif ()
-
-    if (PEDIGREE_ASSERTS)
-        add_definitions(-DASSERTS=1)
-    endif ()
-
-    if (PEDIGREE_DEBUG_LOGGING)
-        add_definitions(-DDEBUG_LOGGING=1)
-    else ()
-        add_definitions(-DDEBUG_LOGGING=0)
-    endif ()
-
-    if (PEDIGREE_SUPERDEBUG)
-        add_definitions(-DSUPERDEBUG=1)
-    endif ()
-
-    if (PEDIGREE_TRACING)
-        add_definitions(-DTRACING=1)
-    endif ()
-
-    if (PEDIGREE_DEBUG_ALLOCATOR)
-        add_definitions(-DDEBUG_ALLOCATOR=1)
-    endif ()
-
-    if (PEDIGREE_SERIAL_IS_FILE)
-        add_definitions(-DSERIAL_IS_FILE=1)
-    endif ()
-
-    if (PEDIGREE_MEMORY_LOG)
-        add_definitions(-DMEMORY_LOGGING_ENABLED=1)
-    endif ()
-
-    if (PEDIGREE_MEMORY_LOG_INLINE)
-        add_definitions(-DMEMORY_LOG_INLINE=1)
-    endif ()
-
-    if (PEDIGREE_MEMORY_TRACING)
-        add_definitions(-DMEMORY_TRACING=1)
-    endif ()
-
-    if (PEDIGREE_TRACK_LOCKS)
-        add_definitions(-DTRACK_LOCKS=1)
-    endif ()
-
-    if (PEDIGREE_MULTIPROCESSOR)
-        add_definitions(-DMULTIPROCESSOR=1)
-    endif ()
-
-    if (PEDIGREE_ACPI)
-        add_definitions(-DACPI=1)
-    endif ()
-
-    if (PEDIGREE_GRAPHICS)
-        add_definitions(-DGRAPHICS=1)
-    endif ()
-
-    if (PEDIGREE_TRACK_HIDDEN_SYMBOLS)
-        add_definitions(-DTRACK_HIDDEN_SYMBOLS=1)
-    endif ()
-
-    if (PEDIGREE_LIVECD)
-        add_definitions(-DLIVECD=1)
-    endif ()
-
-    add_subdirectory(src/system/kernel)
-    add_subdirectory(src/modules)
-    add_subdirectory(src/user)
-    add_subdirectory(src/po)
+    # cross-compiled variant is definitely not running on a linux host
+    add_definitions(-DUTILITY_LINUX=0 -DPEDIGREE_BENCHMARK=0)
 
     # Build config database.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/config.db
@@ -273,6 +228,38 @@ if(CMAKE_CROSSCOMPILING)
         ${CMAKE_SOURCE_DIR}/src/modules/system/users/schema)
     add_custom_target(configdb ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/config.db)
 
+    # Embed config database in a header for static driver builds
+    if (PEDIGREE_STATIC_DRIVERS)
+        # generate kernel as an embedded file
+        add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/embedconfigdb.c
+            COMMAND $<TARGET_FILE:host-headerify>
+            -i ${CMAKE_CURRENT_BINARY_DIR}/config.db
+            -o ${CMAKE_BINARY_DIR}/embedconfigdb.c
+            -v embeddedConfigDb
+            DEPENDS configdb)
+        add_custom_target(embedconfigdb ALL DEPENDS ${CMAKE_BINARY_DIR}/embedconfigdb.c)
+    endif ()
+
+    add_subdirectory(src/modules)
+    add_subdirectory(src/system/kernel)
+    add_subdirectory(src/po)
+
+    # Build everything else with the target compiler rather than the host compiler
+    if (PEDIGREE_ARCH_TARGET STREQUAL "HOSTED")
+        set(CMAKE_C_COMPILER ${PEDIGREE_C_COMPILER})
+        set(CMAKE_CXX_COMPILER ${PEDIGREE_CXX_COMPILER})
+        set(CMAKE_LINKER ${PEDIGREE_CXX_COMPILER})
+        set(CMAKE_SYSROOT "${CMAKE_SOURCE_DIR}/compilers/dir/x86_64-pedigree")
+    endif ()
+
+    if (PEDIGREE_BUILD_USER_DIR)
+        add_subdirectory(src/user)
+    endif ()
+
+    if (PEDIGREE_ARCH_TARGET STREQUAL "arm")
+        add_subdirectory(src/system/boot/arm)
+    endif ()
+
     # Build hard disk image ready for a live CD or imaging.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hdd.img
         COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
@@ -281,8 +268,9 @@ if(CMAKE_CROSSCOMPILING)
         ${PEDIGREE_IMAGESDIR}  # => image tree directory
         ${CMAKE_SOURCE_DIR}  # => base source directory
         ${CMAKE_SOURCE_DIR}/images/base  # => image base directory
-        ${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64  # => kernel
-        ${CMAKE_BINARY_DIR}/src/modules/initrd.tar  # => initrd
+        ${KERNEL_FILENAME}  # => kernel
+        $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:${CMAKE_BINARY_DIR}/src/modules/initrd.tar>  # => initrd
+        $<$<BOOL:${PEDIGREE_STATIC_DRIVERS}>:__noinitrd__>
         ${CMAKE_CURRENT_BINARY_DIR}/config.db  # => config DB
         ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst  # => grub list
         ${CMAKE_BINARY_DIR}/musl  # => musl build directory
@@ -292,7 +280,8 @@ if(CMAKE_CROSSCOMPILING)
         ${PEDIGREE_LIBS}
         ${PEDIGREE_SUBSYSTEM_LIBS}
         DEPENDS
-        kernel kernelfinal initrd
+        kernel kernelfinal
+        $<$<NOT:$<BOOL:${PEDIGREE_STATIC_DRIVERS}>>:initrd>
         ${PEDIGREE_KERNEL_MODULE_TARGETS}
         configdb ${CMAKE_SOURCE_DIR}/images/grub/menu-hdd.lst
         libc ${PEDIGREE_APPS_TARGETS} ${PEDIGREE_LIBS_TARGETS}
@@ -301,40 +290,62 @@ if(CMAKE_CROSSCOMPILING)
     add_custom_target(hddimage ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
 
     # Build ISO file for live CD.
-    set(STAGE2_FILENAME "stage2_eltorito-${PEDIGREE_ARCHDIR}")
-    file(COPY ${CMAKE_SOURCE_DIR}/images/grub/${STAGE2_FILENAME}
-        DESTINATION ${CMAKE_BINARY_DIR})
+    if (PEDIGREE_TARGET_LIVECD)
+        if (GRUB)
+            set(STAGE2_FILENAME "stage2_eltorito-${PEDIGREE_ARCHDIR}")
+            file(COPY ${CMAKE_SOURCE_DIR}/images/grub/${STAGE2_FILENAME}
+                DESTINATION ${CMAKE_BINARY_DIR})
+        endif ()
 
-    if (PEDIGREE_LIVECD)
-        set(ISO_EXTRAFILES
-            livedisk.img=${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
-        set(ISO_EXTRADEPENDS hddimage)
-    else ()
-        set(ISO_EXTRAFILES "")
-        set(ISO_EXTRADEPENDS "")
+        if (PEDIGREE_LIVECD)
+            set(ISO_EXTRAFILES
+                livedisk.img=${CMAKE_CURRENT_BINARY_DIR}/hdd.img)
+            set(ISO_EXTRADEPENDS hddimage)
+        else ()
+            set(ISO_EXTRAFILES "")
+            set(ISO_EXTRADEPENDS "")
+        endif ()
+
+        if (MKISOFS MATCHES "xorriso$")
+            set(MKISOFS_EXTRA_OPTS -as mkisofs)
+        else ()
+            set(MKISOFS_EXTRA_OPTS "")
+        endif ()
+
+        add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso
+            COMMAND ${MKISOFS} ${MKISOFS_EXTRA_OPTS} -D -joliet -graft-points -quiet -input-charset iso8859-1
+            -R -b boot/grub/stage2_eltorito -no-emul-boot -boot-load-size 4 -boot-info-table
+            -o ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso -V PEDIGREE
+            boot/grub/stage2_eltorito=${CMAKE_BINARY_DIR}/${STAGE2_FILENAME}
+            boot/grub/menu.lst=${CMAKE_SOURCE_DIR}/images/grub/menu.lst
+            boot/kernel=${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64
+            boot/initrd.tar=${CMAKE_BINARY_DIR}/src/modules/initrd.tar
+            .pedigree-root=${CMAKE_CURRENT_BINARY_DIR}/config.db
+            ${ISO_EXTRAFILES}
+            DEPENDS kernel kernelfinal initrd configdb ${PEDIGREE_KERNEL_MODULE_TARGETS}
+            ${ISO_EXTRADEPENDS})
+        add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
     endif ()
-
-    if (MKISOFS MATCHES "xorriso$")
-        set(MKISOFS_EXTRA_OPTS -as mkisofs)
-    else ()
-        set(MKISOFS_EXTRA_OPTS "")
-    endif ()
-
-    add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso
-        COMMAND ${MKISOFS} ${MKISOFS_EXTRA_OPTS} -D -joliet -graft-points -quiet -input-charset iso8859-1
-        -R -b boot/grub/stage2_eltorito -no-emul-boot -boot-load-size 4 -boot-info-table
-        -o ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso -V PEDIGREE
-        boot/grub/stage2_eltorito=${CMAKE_BINARY_DIR}/${STAGE2_FILENAME}
-        boot/grub/menu.lst=${CMAKE_SOURCE_DIR}/images/grub/menu.lst
-        boot/kernel=${CMAKE_BINARY_DIR}/src/system/kernel/kernel-mini64
-        boot/initrd.tar=${CMAKE_BINARY_DIR}/src/modules/initrd.tar
-        .pedigree-root=${CMAKE_CURRENT_BINARY_DIR}/config.db
-        ${ISO_EXTRAFILES}
-        DEPENDS kernel kernelfinal initrd configdb ${PEDIGREE_KERNEL_MODULE_TARGETS}
-        ${ISO_EXTRADEPENDS})
-    add_custom_target(livecd ALL DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/pedigree.iso)
 else ()
     set(POSITION_INDEPENDENT_CODE TRUE)
+
+    # Override some definitions for build utilities
+    set(PEDIGREE_HOSTED TRUE)
+    set(PEDIGREE_LOG_TO_SERIAL FALSE)
+    set(PEDIGREE_DEBUGGER FALSE)
+    set(PEDIGREE_MULTIPROCESSOR FALSE)
+    set(PEDIGREE_MEMORY_TRACING FALSE)
+    set(PEDIGREE_SERIAL_IS_FILE FALSE)
+
+    add_definitions(-DTHREADS=0 -DKERNEL_NEEDS_ADDRESS_SPACE_SWITCH=0)
+
+    # Copy over all our definitions.
+    configure_file(
+        ${CMAKE_SOURCE_DIR}/src/system/include/pedigree/kernel/config.h.in
+        ${CMAKE_CURRENT_BINARY_DIR}/config.h)
+
+    # Include the definitions file in every translation unit
+    add_definitions(-include ${CMAKE_CURRENT_BINARY_DIR}/config.h)
 
     add_subdirectory(external/googletest)
     add_subdirectory(src/buildutil)

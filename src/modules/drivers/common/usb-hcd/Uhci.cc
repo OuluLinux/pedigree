@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifdef X86_COMMON
+#if X86_COMMON
 
 #include "Uhci.h"
 #include "modules/system/usb/Usb.h"
@@ -59,8 +59,8 @@ static int threadStub(void *p)
 }
 
 Uhci::Uhci(Device *pDev)
-    : UsbHub(pDev), RequestQueue("UHCI"), m_pBase(0), m_nPorts(0),
-      m_AsyncQueueListChangeLock(), m_UhciMR("Uhci-MR"),
+    : UsbHub(pDev), RequestQueue(MakeConstantString("UHCI")), m_pBase(0),
+      m_nPorts(0), m_AsyncQueueListChangeLock(), m_UhciMR("Uhci-MR"),
       m_pCurrentAsyncQueueTail(0), m_pCurrentAsyncQueueHead(0),
       m_AsyncSchedule(), m_DequeueList(), m_DequeueCount(0),
       m_nPortCheckTicks(0)

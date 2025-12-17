@@ -47,6 +47,7 @@ MeminfoFile::MeminfoFile(size_t inode, Filesystem *pParentFS, File *pParent)
     m_bRunning = true;
     m_pUpdateThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), run, this);
+    m_pUpdateThread->setName("MeminfoFile updater thread");
 }
 
 MeminfoFile::~MeminfoFile()
@@ -82,6 +83,8 @@ void MeminfoFile::updateThread()
 
         Time::delay(1 * Time::Multiplier::Second);
     }
+
+    NOTICE("MeminfoFile::updateThread completed");
 }
 
 uint64_t MeminfoFile::readBytewise(
@@ -378,6 +381,10 @@ ProcFs::~ProcFs()
 
 bool ProcFs::initialise(Disk *pDisk)
 {
+    /// \todo ConstantFile is taking const char *s of all this and holding them
+    /// which is extremely unsafe. That must be fixed because right now the
+    /// ConstantFile could point into freed heap memory.
+
     // Deterministic inode assignment to each ProcFs node
     m_NextInode = 0;
 
@@ -411,27 +418,26 @@ bool ProcFs::initialise(Disk *pDisk)
     UptimeFile *uptime = new UptimeFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(uptime->getName(), uptime);
 
-    String fs("\text2\nnodev\tproc\nnodev\ttmpfs\n");
+    static String fs("\text2\nnodev\tproc\nnodev\ttmpfs\n");
     ConstantFile *pFilesystems = new ConstantFile(
-        String("filesystems"), fs, fs.length(), getNextInode(), this, m_pRoot);
+        String("filesystems"), fs.cstr(), fs.length(), getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(pFilesystems->getName(), pFilesystems);
 
     // Kernel command line
-    String cmdline;  //(g_pBootstrapInfo->getCommandLine());
-    cmdline = "noswap quiet boot=live\n";
+    static String cmdline("noswap quiet boot=live\n", 25);  //(g_pBootstrapInfo->getCommandLine());
     NOTICE("cmdline is '" << cmdline << "'");
     ConstantFile *pCmdline = new ConstantFile(
-        String("cmdline"), cmdline, cmdline.length(), getNextInode(), this,
+        String("cmdline"), cmdline.cstr(), cmdline.length(), getNextInode(), this,
         m_pRoot);
     m_pRoot->addEntry(pCmdline->getName(), pCmdline);
 
     // /proc/version contains some extra version info (not same as uname)
-    String version;
+    static String version;
     version.Format(
         "Pedigree version %s (%s@%s) %s", g_pBuildRevision, g_pBuildUser,
         g_pBuildMachine, g_pBuildTime);
     ConstantFile *pVersion = new ConstantFile(
-        String("version"), version, version.length(), getNextInode(), this,
+        String("version"), version.cstr(), version.length(), getNextInode(), this,
         m_pRoot);
     m_pRoot->addEntry(pVersion->getName(), pVersion);
 
@@ -535,7 +541,7 @@ bool ProcFs::initialise(Disk *pDisk)
     Device::foreach (callback, nullptr);
 
     ConstantFile *pPciDevices = new ConstantFile(
-        String("devices"), m_PciDevices, m_PciDevices.length(), getNextInode(),
+        String("devices"), m_PciDevices.cstr(), m_PciDevices.length(), getNextInode(),
         this, pPciDir);
     pPciDir->addEntry(pPciDevices->getName(), pPciDevices);
 

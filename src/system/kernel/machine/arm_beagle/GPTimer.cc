@@ -20,11 +20,12 @@
 #include "GPTimer.h"
 #include "Prcm.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/processor/PhysicalMemoryManager.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
-
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/TimerHandler.h"
 
 SyncTimer g_SyncTimer;
 
@@ -54,7 +55,7 @@ uint32_t SyncTimer::getTickCount()
     if (!m_MmioBase)
         return 0;
 
-    return reinterpret_cast<uint32_t *>(m_MmioBase.virtualAddress())[4];
+    return reinterpret_cast<volatile uint32_t *>(m_MmioBase.virtualAddress())[4];
 }
 
 void GPTimer::initialise(size_t timer, uintptr_t base)
@@ -68,6 +69,7 @@ void GPTimer::initialise(size_t timer, uintptr_t base)
         return;
     }
 
+    /*
     if (timer > 0)
     {
         // Use the SYS_CLK as our time source during reset
@@ -79,6 +81,7 @@ void GPTimer::initialise(size_t timer, uintptr_t base)
         // Enable the functional clock for the timer
         Prcm::instance().SetFuncClockPER(timer, true);
     }
+    */
 
     volatile uint32_t *registers =
         reinterpret_cast<volatile uint32_t *>(m_MmioBase.virtualAddress());
@@ -103,31 +106,47 @@ void GPTimer::initialise(size_t timer, uintptr_t base)
         << "  - revision " << Dec << ((hardwareRevision >> 4) & 0xF) << "."
         << (hardwareRevision & 0xF) << Hex);
 
+    waitForRegister(wait_everything);
+
     // Section 16.2.4.2.1 in the OMAP35xx manual, page 2573
     // GPTIMER1, GPTIMER2, GPTIMER10 can all do this 1-ms poll.
-    if (timer <= 2 || timer == 11)
+    if (timer < 2 || timer == 10)
     {
+        /*
         registers[TPIR] = 232000;
+        waitForRegister(wait_everything);
         registers[TNIR] = -768000;
+        waitForRegister(wait_everything);
         registers[TLDR] = 0xFFFFFFE0;
+        waitForRegister(wait_everything);
         registers[TTGR] = 1;  // Trigger after one interval
+        waitForRegister(wait_everything);
+        */
     }
 
-    // Default load values.
-    registers[TCRR] = 0xFFFFFFE0;
-
-    // Clear existing interrupts
-    registers[TISR] = 7;
-
-    // Set the IRQ number for future reference
     m_Irq = 37 + timer;
+
+    registers[TLDR] = 0;
+    waitForRegister(wait_everything);
 
     // Enable the overflow and capture interrupts
     registers[TIER] = 2;
+    waitForRegister(wait_everything);
     registers[TWER] = 2;
+    waitForRegister(wait_everything);
 
     // Enable the timer in the right mode
     registers[TCLR] = 3;  // Autoreload and timer started
+    waitForRegister(wait_everything);
+
+    // Clear existing interrupts
+    registers[TISR] = registers[TISR];
+    waitForRegister(wait_everything);
+
+    // Default load values.
+    registers[TCRR] = 0xFFFFFFE0;
+    waitForRegister(wait_everything);
+
 }
 
 bool GPTimer::registerHandler(TimerHandler *handler)
@@ -174,7 +193,7 @@ bool GPTimer::unregisterHandler(TimerHandler *handler)
 
 void GPTimer::addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
 {
-#ifdef THREADS
+#if THREADS
     size_t time = (alarmSecs * 1000) + (alarmUsecs / 1000) + m_TickCount;
     Alarm *pAlarm =
         new Alarm(pEvent, time, Processor::information().getCurrentThread());
@@ -184,7 +203,7 @@ void GPTimer::addAlarm(class Event *pEvent, size_t alarmSecs, size_t alarmUsecs)
 
 void GPTimer::removeAlarm(class Event *pEvent)
 {
-#ifdef THREADS
+#if THREADS
     for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
          it++)
     {
@@ -199,7 +218,7 @@ void GPTimer::removeAlarm(class Event *pEvent)
 
 size_t GPTimer::removeAlarm(class Event *pEvent, bool bRetZero)
 {
-#ifdef THREADS
+#if THREADS
     size_t currTime = getTickCount();
 
     for (List<Alarm *>::Iterator it = m_Alarms.begin(); it != m_Alarms.end();
@@ -262,4 +281,14 @@ void GPTimer::interrupt(size_t nInterruptnumber, InterruptState &state)
     volatile uint32_t *registers =
         reinterpret_cast<volatile uint32_t *>(m_MmioBase.virtualAddress());
     registers[TISR] = registers[TISR];
+    waitForRegister(wait_everything);
+}
+
+void GPTimer::waitForRegister(WaitRegister reg)
+{
+    volatile uint32_t *registers =
+        reinterpret_cast<volatile uint32_t *>(m_MmioBase.virtualAddress());
+
+    while (registers[TWPS] & static_cast<uint32_t>(reg))
+        ;
 }

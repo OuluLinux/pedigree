@@ -20,8 +20,6 @@
 #ifndef THREAD_H
 #define THREAD_H
 
-#ifdef THREADS
-
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/process/Event.h"
@@ -206,6 +204,9 @@ class EXPORTED_PUBLIC Thread
     /** Retrieves a pointer to the top of the Thread's kernel stack. */
     void *getKernelStack();
 
+    /** Retrieves a pointer to the bottom of the Thread's kernel stack, and its size. */
+    void *getKernelStackBase(size_t *size) const;
+
     /** Returns the Thread's ID. */
     size_t getId()
     {
@@ -370,7 +371,7 @@ class EXPORTED_PUBLIC Thread
 
     /** Gets this thread's CPU ID */
     inline
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
         ProcessorId
 #else
         size_t
@@ -382,7 +383,7 @@ class EXPORTED_PUBLIC Thread
 
     /** Sets this thread's CPU ID */
     inline void setCpuId(
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
         ProcessorId
 #else
         size_t
@@ -442,6 +443,22 @@ class EXPORTED_PUBLIC Thread
     /** Gets the per-processor scheduler for this Thread. */
     class PerProcessorScheduler *getScheduler() const;
 
+    const String &getName() const
+    {
+        return m_Name;
+    }
+
+    void setName(const String &name)
+    {
+        m_Name = name;
+    }
+
+    template <size_t N>
+    void setName(const char (&name)[N])
+    {
+        m_Name.assign(name, N);
+    }
+
   protected:
     /** Sets the scheduler for the Thread. */
     void setScheduler(class PerProcessorScheduler *pScheduler);
@@ -495,6 +512,9 @@ class EXPORTED_PUBLIC Thread
         Thread *m_pBlockingThread;
     };
 
+    /** An optional name for the thread for debugging. */
+    String m_Name;
+
     /** The current index into m_States (head of the state stack). */
     size_t m_nStateLevel = 0;
 
@@ -523,7 +543,7 @@ class EXPORTED_PUBLIC Thread
     /** Memory mapping for the TLS base of this thread (userspace-only) */
     void *m_pTlsBase = nullptr;
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     ProcessorId
 #else
     size_t
@@ -579,7 +599,5 @@ class EXPORTED_PUBLIC Thread
     /** Whether this thread has been marked interruptible or not. */
     bool m_bInterruptible = true;
 };
-
-#endif
 
 #endif

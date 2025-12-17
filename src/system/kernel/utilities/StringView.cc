@@ -150,12 +150,12 @@ StringView StringView::substring(size_t start, size_t end, bool hashed) const
 
 String StringView::toString() const
 {
-    return String(m_String, m_Length);
+    return String(m_String, m_Length, true);
 }
 
 char StringView::operator[](size_t index) const
 {
-#ifdef ADDITIONAL_CHECKS
+#if ADDITIONAL_CHECKS
     if (UNLIKELY(index >= m_Length))
     {
         ERROR("operator[] - index " << index << " exceeds length " << m_Length);

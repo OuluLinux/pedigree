@@ -24,7 +24,7 @@
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/Vector.h"
-#ifdef THREADS
+#if THREADS
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
 #endif
@@ -166,7 +166,7 @@ class EXPORTED_PUBLIC Device
     }
 
     /** Returns the (specific) type of the device, in string form. */
-    virtual String getSpecificType()
+    virtual const String &getSpecificType()
     {
         return m_SpecificType;
     }
@@ -249,7 +249,7 @@ class EXPORTED_PUBLIC Device
     /** Dumps a textual representation of the device into the given string. */
     virtual void dump(String &str)
     {
-        str = "Abstract Device";
+        str.assign("Abstract Device", 16);
     }
 
     /** Returns the addresses of the device, in its parent's address space */
@@ -393,7 +393,7 @@ class EXPORTED_PUBLIC Device
     uint32_t m_PciDevicePos;
     /** PCI Function number */
     uint32_t m_PciFunctionNum;
-#ifdef THREADS
+#if THREADS
     /** Lock to manage access to the device tree. */
     static Mutex m_TreeLock;
 #endif
@@ -403,7 +403,7 @@ template <class F, class... Args>
 void Device::foreach (
     pedigree_std::Callable<F> &callback, Device * root, Args... args)
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_TreeLock);
 #endif
 

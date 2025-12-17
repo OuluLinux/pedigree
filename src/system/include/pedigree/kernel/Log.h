@@ -21,9 +21,7 @@
 #define KERNEL_LOG_H
 
 #include "pedigree/kernel/compiler.h"
-#ifdef THREADS
 #include "pedigree/kernel/Spinlock.h"
-#endif
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/StaticString.h"
 #include "pedigree/kernel/utilities/StaticCord.h"
@@ -31,11 +29,13 @@
 
 class String;
 class StringView;
+class Cord;
 
 /** @addtogroup kernel
  * @{ */
 
 #define SHOW_FILE_IN_LOGS 0
+#define HUGE_STATIC_LOG 0
 
 typedef StaticCord<8> LogCord;
 
@@ -56,10 +56,11 @@ typedef StaticCord<8> LogCord;
         Log::LogEntry __log_macro_logentry;                   \
         FILE_LOG(__log_macro_logentry, level);                \
         __log_macro_logentry << level << text;                \
+        if (!lock) __log_macro_logentry << Unlocked;          \
         Log::instance().addEntry(__log_macro_logentry, lock); \
     } while (0)
 
-#ifndef NO_LOGGING
+#if LOGGING
 
 /** Add a debug item to the log */
 #if DEBUG_LOGGING
@@ -101,7 +102,13 @@ typedef StaticCord<8> LogCord;
             ;                              \
     } while (0)
 
-#else  // NO_LOGGING
+#if PEDANTIC_PEDIGREE
+#define PEDANTRY FATAL
+#else
+#define PEDANTRY WARNING
+#endif
+
+#else  // LOGGING
 
 #define DEBUG_LOG(text)
 #define DEBUG_LOG_NOLOCK(text)
@@ -113,13 +120,14 @@ typedef StaticCord<8> LogCord;
 #define ERROR_NOLOCK(text)
 #define FATAL(text)
 #define FATAL_NOLOCK(text)
+#define PEDANTRY(text)
 
 #endif
 
 /** The maximum length of an individual static log entry. */
 #define LOG_LENGTH 128
 /** The maximum number of static entries in the log. */
-#ifdef HUGE_STATIC_LOG
+#if HUGE_STATIC_LOG
 // 2MB static log buffer
 #define LOG_ENTRIES ((1 << 21) / sizeof(LogEntry))
 #else
@@ -144,7 +152,16 @@ enum NumberType
 enum Modifier
 {
     /** Flush this log entry */
-    Flush
+    Flush,
+};
+
+/** Modifiers for LogEntry */
+enum LogEntryModifier
+{
+    /** This log entry should be pushed to log targets without locking. */
+    Unlocked,
+    /** Don't add a timestamp to this log message. */
+    NoTimestamp,
 };
 
 // Function pointer to update boot progress -
@@ -172,7 +189,7 @@ class Log
     class EXPORTED_PUBLIC LogCallback
     {
       public:
-        virtual void callback(const LogCord &cord) = 0;
+        virtual void callback(const LogCord &cord, bool locked = true) = 0;
         virtual ~LogCallback();
     };
 
@@ -186,12 +203,10 @@ class Log
         Fatal
     };
 
-/** The lock
- *\note this should only be acquired by the NOTICE, WARNING, ERROR and FATAL
- *macros */
-#ifdef THREADS
+    /** The lock
+     *\note this should only be acquired by the NOTICE, WARNING, ERROR and FATAL
+     *macros */
     Spinlock m_Lock;
-#endif
 
     /** Retrieves the static Log instance.
      *\return instance of the log class */
@@ -245,13 +260,34 @@ class Log
         StaticString<LOG_LENGTH> str;
         /** The number type mode that we are in. */
         NumberType numberType;
+        /** Was this created in a lock-free context? */
+        bool lockfree = false;
+        /** Should we show the timestamp? */
+        bool showTimestamp = true;
 
         /** Adds an entry to the log.
          *\param[in] str the null-terminated ASCII string that should be added
          */
         LogEntry &operator<<(const char *);
+        template<size_t N>
+        LogEntry &operator<<(const char (&str)[N])
+        {
+            str.appendBytes(str, N);
+            return *this;
+        }
         LogEntry &operator<<(const String &);
         LogEntry &operator<<(const StringView &);
+        LogEntry &operator<<(const Cord &);
+        template<size_t N>
+        LogEntry &operator<<(const StaticString<N> &s)
+        {
+            str.appendBytes(s, s.length());
+            return *this;
+        }
+        LogEntry &operator<<(const TinyStaticString &);
+        LogEntry &operator<<(const NormalStaticString &);
+        LogEntry &operator<<(const LargeStaticString &);
+        LogEntry &operator<<(const HugeStaticString &);
         /** Adds an entry to the log
          *\param[in] str the null-terminated ASCII string that should be added
          */
@@ -279,6 +315,7 @@ class Log
         LogEntry &operator<<(SeverityLevel level);
         /** Changes the number type between hex and decimal. */
         LogEntry &operator<<(NumberType type);
+        LogEntry &operator<<(LogEntryModifier modifier);
     };
 
     /** Type of a static log entry (no memory-management involved) */

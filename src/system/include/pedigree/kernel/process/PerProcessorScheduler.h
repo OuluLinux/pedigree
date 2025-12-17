@@ -20,8 +20,6 @@
 #ifndef PERPROCESSORSCHEDULER_H
 #define PERPROCESSORSCHEDULER_H
 
-#ifdef THREADS
-
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/TimerHandler.h"
 #include "pedigree/kernel/process/ConditionVariable.h"
@@ -130,11 +128,9 @@ class EXPORTED_PUBLIC PerProcessorScheduler : public TimerHandler
 
     Thread *m_pIdleThread;
 
-#ifdef ARM_BEAGLE
+#if ARM_BEAGLE
     size_t m_TickCount;
 #endif
 };
-
-#endif
 
 #endif

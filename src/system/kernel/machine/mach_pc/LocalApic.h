@@ -20,7 +20,7 @@
 #ifndef KERNEL_MACHINE_X86_COMMON_LOCAL_APIC_H
 #define KERNEL_MACHINE_X86_COMMON_LOCAL_APIC_H
 
-#if defined(APIC)
+#if APIC
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
@@ -109,6 +109,11 @@ class LocalApic : public SchedulerTimer, private InterruptHandler
         // insert() won't insert if the key is already present.
         m_Handlers.insert(Processor::id(), handler);
         return false;
+    }
+
+    virtual void removeHandler(TimerHandler *handler)
+    {
+        m_Handlers.remove(Processor::id());
     }
 
     void ack();

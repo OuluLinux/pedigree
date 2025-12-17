@@ -20,7 +20,9 @@
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/machine/Timer.h"
 #include "pedigree/kernel/processor/InterruptManager.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
+#include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/List.h"
 
 #define MAX_TIMER_HANDLERS 32
@@ -74,25 +76,25 @@ class GPTimer : public Timer, public SchedulerTimer, public InterruptHandler
      *\return the current year */
     virtual size_t getYear()
     {
-        return 0;
+        return 1970;
     }
     /** Get the current month
      *\return the current month */
     virtual uint8_t getMonth()
     {
-        return 0;
+        return 1;
     }
     /** Get the current day of month
      *\return the current day of month */
     virtual uint8_t getDayOfMonth()
     {
-        return 0;
+        return 1;
     }
     /** Get the current day of week
      *\return the current day of week */
     virtual uint8_t getDayOfWeek()
     {
-        return 0;
+        return 1;
     }
     /** Get the current hour
      *\return the current hour */
@@ -130,6 +132,12 @@ class GPTimer : public Timer, public SchedulerTimer, public InterruptHandler
     virtual bool registerHandler(TimerHandler *handler);
     virtual bool unregisterHandler(TimerHandler *handler);
 
+    // SchedulerTimer interface
+    virtual void removeHandler(TimerHandler *handler)
+    {
+        unregisterHandler(handler);
+    }
+
     /** Dispatches the Event \p pEvent to the current thread in \p alarmSecs
      *time. \param pEvent Event to dispatch. \param alarmSecs Number of seconds
      *to wait.
@@ -155,6 +163,19 @@ class GPTimer : public Timer, public SchedulerTimer, public InterruptHandler
     GPTimer &operator=(const Timer &);
 
     virtual void interrupt(size_t nInterruptnumber, InterruptState &state);
+
+    enum WaitRegister
+    {
+        wait_tclr = 0x01,
+        wait_tcrr = 0x02,
+        wait_tldr = 0x04,
+        wait_ttgr = 0x08,
+        wait_tmar = 0x10,
+        wait_everything = 0x1f
+    };
+
+    /** Wait for the GPTimer to be finished with a register. */
+    void waitForRegister(WaitRegister reg);
 
     /** MMIO base */
     MemoryRegion m_MmioBase;

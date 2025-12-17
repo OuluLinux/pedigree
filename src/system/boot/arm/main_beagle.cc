@@ -22,8 +22,8 @@
 #include "Elf32.h"
 #include "support.h"
 
-// autogen.h contains the full kernel binary in a char array
-#include "autogen.h"
+extern char embeddedKernel[];
+extern unsigned long embeddedKernel_length;
 
 extern "C" {
 volatile unsigned char *uart1 = (volatile unsigned char *) 0x4806A000;
@@ -827,11 +827,14 @@ void __start(uint32_t r0, uint32_t machineType, struct atag *tagList)
     writeStr(
         3, "\r\nPlease press the USER button on the board to continue.\r\n");
 
+    /*
     while (!gpio.capturepin(7))
         ;
+    */
 
     writeStr(3, "USER button pressed, continuing...\r\n\r\n");
 
+#if 0
     writeStr(
         3, "Press 1 to toggle the USR0 LED, and 2 to toggle the USR1 "
            "LED.\r\nPress 0 to clear both LEDs. Hit ENTER to boot the "
@@ -864,12 +867,13 @@ void __start(uint32_t r0, uint32_t machineType, struct atag *tagList)
         else if ((c == 13) || (c == 10))
             break;
     }
+#endif
 
     writeStr(3, "\r\n\r\nPlease wait while the kernel is loaded...\r\n");
 
     Elf32 elf("kernel");
     writeStr(3, "Preparing file... ");
-    elf.load((uint8_t *) file, 0);
+    elf.load((uint8_t *) embeddedKernel, 0);
     writeStr(3, "Done!\r\n");
 
     writeStr(3, "Loading file into memory (please wait) ");
@@ -889,8 +893,9 @@ void __start(uint32_t r0, uint32_t machineType, struct atag *tagList)
     bs->flags |= MULTIBOOT_FLAG_ELF;
 
     // Repurpose these variables a little....
+    /// \todo adding 0x1000 is just to align, but may not be needed.
     bs->mods_addr = reinterpret_cast<uint32_t>(elf.m_pBuffer);
-    bs->mods_count = (sizeof file) + 0x1000;
+    bs->mods_count = embeddedKernel_length + 0x1000;
     bs->flags |= MULTIBOOT_FLAG_MODS;
 
     // For every section header, set .addr = .offset + m_pBuffer.
@@ -906,10 +911,19 @@ void __start(uint32_t r0, uint32_t machineType, struct atag *tagList)
     gpio.clearpin(149);
     gpio.clearpin(150);
 
+    // Ensure no interrupts until the kernel is ready for them
+    uint32_t cpsr = 0;
+    asm volatile("MRS %0, cpsr" : "=r"(cpsr));
+    cpsr |= 0x80;
+    asm volatile("MSR cpsr_c, %0" : : "r"(cpsr));
+
     // Run the kernel, finally
     writeStr(
         3, "Now starting the Pedigree kernel (can take a while, please "
            "wait).\r\n\r\n");
+    writeStr(3, "Main is at 0x");
+    writeHex(3, (uint32_t)main);
+    writeStr(3, "\r\n");
     main(bs);
 
     while (1)

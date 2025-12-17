@@ -1,6 +1,7 @@
 
 set(PEDIGREE_BUILDUTILS_ASAN OFF CACHE BOOL "Build build utilities with the address sanitizer enabled.")
 
+include(CheckCCompilerFlag)
 include(CodeCoverage)
 
 find_package(OpenSSL)
@@ -9,23 +10,29 @@ find_package(Threads REQUIRED)
 find_library(BENCHMARK_LIBRARY benchmark)
 find_path(BENCHMARK_INCLUDE_DIR benchmark/benchmark.h)
 
+# Do we have asan? Need both here as the link flag is also needed.
+set(CMAKE_REQUIRED_FLAGS "-fsanitize=address")
+check_c_compiler_flag("-fsanitize=address" HAVE_ASAN)
+
+unset(CMAKE_REQUIRED_FLAGS)
+
 if (BENCHMARK_INCLUDE_DIR)
     include_directories(${BENCHMARK_INCLUDE_DIR})
 endif ()
 
 # TODO: should detect a few of these things
 add_definitions(
-    -DHOSTED -DUTILITY_LINUX -DTARGET_IS_LITTLE_ENDIAN -DDONT_LOG_TO_SERIAL
-    -DPEDIGREE_BENCHMARK -DSTANDALONE_MUTEXES -DSTANDALONE_CACHE
-    -DSTANDALONE_MEMPOOL -DDEVICE_IGNORE_ADDRESSES -DBITS_64 -DLITTLE_ENDIAN
-    -DVFS_NOMMU -DVFS_STANDALONE -DEXT2_STANDALONE -DADDITIONAL_CHECKS)
+    -DUTILITY_LINUX=1 -DTARGET_IS_LITTLE_ENDIAN=1
+    -DPEDIGREE_BENCHMARK=1 -DSTANDALONE_MUTEXES=1 -DSTANDALONE_CACHE=1
+    -DSTANDALONE_MEMPOOL=1 -DDEVICE_IGNORE_ADDRESSES=1 -DBITS_64=1 -DLITTLE_ENDIAN=1
+    -DVFS_NOMMU=1 -DVFS_STANDALONE=1 -DEXT2_STANDALONE=1)
 
-set(BUILDUTIL_FLAGS -ggdb -gdwarf-2)
-set(BUILDUTIL_CFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CFLAGS})
-set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS})
+set(BUILDUTIL_FLAGS -ggdb -gdwarf-2 -fno-omit-frame-pointer)
+set(BUILDUTIL_CFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_CFLAGS})
+set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_FLAGS} ${GENERIC_COMPILE_FLAGS} ${GENERIC_CXXFLAGS})
 set(BUILDUTIL_LINKFLAGS "")
 
-if (PEDIGREE_BUILDUTILS_ASAN)
+if (PEDIGREE_BUILDUTILS_ASAN AND HAVE_ASAN)
     set(BUILDUTIL_CFLAGS ${BUILDUTIL_CFLAGS} -fsanitize=address)
     set(BUILDUTIL_CXXFLAGS ${BUILDUTIL_CXXFLAGS} -fsanitize=address)
     set(BUILDUTIL_LINKFLAGS "${BUILDUTIL_LINKFLAGS} -fsanitize=address")
@@ -41,10 +48,6 @@ add_compile_options(
     "$<$<COMPILE_LANGUAGE:C>:${BUILDUTIL_CFLAGS}>"
     "$<$<COMPILE_LANGUAGE:CXX>:${BUILDUTIL_CXXFLAGS}>")
 
-if (OPENSSL_FOUND)
-    add_definitions(-DHAVE_OPENSSL)
-endif ()
-
 include_directories(
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/system/include
@@ -55,7 +58,9 @@ set(KERNEL_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/DeviceHashTree.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/machine/Disk.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/linker/SymbolTable.cc
-    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/IoBase.cc)
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/IoBase.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Event.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/process/Semaphore.cc)
 add_library(kernel ${KERNEL_SRCS})
 add_library(kernel_coverage ${KERNEL_SRCS})
 target_compile_options(kernel PRIVATE ${NONCOVERAGE_FLAGS})
@@ -104,6 +109,7 @@ set(UTILITY_SRCS
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/vsprintf.c
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/lib/SlamAllocator.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/PhysicalMemoryManager.cc
+    ${CMAKE_SOURCE_DIR}/src/system/kernel/core/processor/MemoryRegion.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/time/Conversion.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/time/Concurrent.cc  # Portable, unlike Delay.cc
     ${CMAKE_SOURCE_DIR}/src/system/kernel/network/IpAddress.cc
@@ -161,6 +167,10 @@ target_compile_definitions(debugger PRIVATE -DTESTSUITE)
 add_library(config
     ${CMAKE_SOURCE_DIR}/src/modules/system/config/Config.cc
     ${CMAKE_SOURCE_DIR}/src/modules/system/config/sqlite3/sqlite3.c)
+target_compile_options(config PRIVATE -Wno-implicit-fallthrough -Wno-cast-qual -Wno-error)
+
+add_library(posix
+    ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/IoEvent.cc)
 
 add_executable(keymap
     ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/main.c)
@@ -186,7 +196,7 @@ target_compile_definitions(memorytracer PRIVATE -DMEMORY_TRACING)
 
 # TODO: figure out how to build vdsotest given vdso.h could potentially not exist
 
-add_executable(testsuite
+set(TESTSUITE_SRCS
     testsuite/test-BloomFilter.cc
     testsuite/test-Tree.cc
     testsuite/test-ObjectPool.cc
@@ -201,6 +211,7 @@ add_executable(testsuite
     testsuite/test-List.cc
     testsuite/test-SharedPointer.cc
     testsuite/test-UniquePointer.cc
+    testsuite/test-RingBuffer.cc
     testsuite/test-Buffer.cc
     testsuite/test-stringlib.cc
     testsuite/test-ExtensibleBitmap.cc
@@ -214,21 +225,35 @@ add_executable(testsuite
     testsuite/test-StringView.cc
     testsuite/test-LruCache.cc
     testsuite/test-Log.cc
-    testsuite/test-Cord.cc
-)
+    testsuite/test-Cord.cc)
+
+# non-ASAN testsuite
+add_executable(testsuite ${TESTSUITE_SRCS})
 target_link_libraries(testsuite PRIVATE
-    kernel_coverage debugger vfs utility_coverage Threads::Threads gtest gtest_main)
+    debugger vfs utility_coverage kernel_coverage Threads::Threads gtest gtest_main)
 target_compile_definitions(testsuite PRIVATE -DTESTSUITE)
 target_compile_options(testsuite PRIVATE ${COVERAGE_FLAGS})
 target_link_libraries(testsuite PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS})
 
+# ASAN testsuite
+if (HAVE_ASAN)
+    add_executable(testsuite-asan ${TESTSUITE_SRCS})
+    target_link_libraries(testsuite-asan PRIVATE
+        debugger vfs utility_coverage kernel_coverage Threads::Threads gtest gtest_main)
+    target_compile_definitions(testsuite-asan PRIVATE -DTESTSUITE)
+    target_compile_options(testsuite-asan PRIVATE ${COVERAGE_FLAGS} "-fsanitize=address")
+    target_link_libraries(testsuite-asan PRIVATE ${COVERAGE_FLAGS} ${COVERAGE_LINKFLAGS} "-fsanitize=address")
+endif ()
+
+add_executable(headerify headerify/main.cc)
+
 export(
-    TARGETS keymap ext2img instrument memorytracer testsuite
+    TARGETS keymap ext2img instrument memorytracer testsuite headerify
     FILE ${CMAKE_BINARY_DIR}/HostUtilities.cmake NAMESPACE host-
 )
 
 if (BENCHMARK_LIBRARY)
-    add_executable(benchmarker
+    set(BENCHMARK_SRCS
         testsuite/bench-BloomFilter.cc
         testsuite/bench-Cord.cc
         testsuite/bench-ExtensibleBitmap.cc
@@ -249,12 +274,19 @@ if (BENCHMARK_LIBRARY)
         testsuite/bench-Tree.cc
         testsuite/bench-VFS.cc
         testsuite/bench-LruCache.cc
-        testsuite/bench-Log.cc
-    )
+        testsuite/bench-Log.cc)
+    add_executable(benchmarker ${BENCHMARK_SRCS})
     target_link_libraries(benchmarker PRIVATE
-        kernel ramfs vfs utility Threads::Threads ${BENCHMARK_LIBRARY})
-    target_compile_options(benchmarker PRIVATE "-Os" "-march=native" "-mtune=native")
+        ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
+    target_compile_options(benchmarker PRIVATE "-Os" "-march=k8" "-mtune=k8" "-mno-sse" "-mno-mmx" "-mno-red-zone" "-fno-omit-frame-pointer")
     target_compile_definitions(benchmarker PRIVATE -DTESTSUITE)
+
+    add_executable(benchmarker-native ${BENCHMARK_SRCS})
+    target_link_libraries(benchmarker-native PRIVATE
+        ramfs vfs utility kernel Threads::Threads ${BENCHMARK_LIBRARY})
+    target_compile_options(benchmarker-native PRIVATE "-O3" "-march=native" "-mtune=native")
+    target_compile_definitions(benchmarker-native PRIVATE -DTESTSUITE)
+
 
     export(
         TARGETS benchmarker
@@ -322,7 +354,7 @@ add_executable(unixsockets
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/poll-syscalls.cc
     ${CMAKE_SOURCE_DIR}/src/modules/subsys/posix/util.cc)
 target_link_libraries(unixsockets PRIVATE
-    lwip vfs utility kernel Threads::Threads)
+    lwip posix vfs utility kernel Threads::Threads)
 
 SETUP_TARGET_FOR_COVERAGE(
     NAME testsuite_coverage

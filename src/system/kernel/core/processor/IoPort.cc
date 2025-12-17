@@ -20,8 +20,6 @@
 #include "pedigree/kernel/processor/IoPort.h"
 #include "pedigree/kernel/processor/IoPortManager.h"
 
-#if !defined(KERNEL_PROCESSOR_NO_PORT_IO)
-
 IoPort::IoPort(const char *name) : m_IoPort(0), m_Size(0), m_Name(name)
 {
 }
@@ -77,4 +75,39 @@ const char *IoPort::name() const
     return m_Name;
 }
 
+#if KERNEL_PROCESSOR_NO_PORT_IO
+/// \todo all these should actually panic or something
+
+uint8_t IoPort::read8(size_t offset)
+{
+    return 0;
+}
+uint16_t IoPort::read16(size_t offset)
+{
+    return 0;
+}
+uint32_t IoPort::read32(size_t offset)
+{
+    return 0;
+}
+#if BITS_64
+uint64_t IoPort::read64(size_t offset)
+{
+    return 0;
+}
+#endif
+void IoPort::write8(uint8_t value, size_t offset)
+{
+}
+void IoPort::write16(uint16_t value, size_t offset)
+{
+}
+void IoPort::write32(uint32_t value, size_t offset)
+{
+}
+#if BITS_64
+void IoPort::write64(uint64_t value, size_t offset)
+{
+}
+#endif
 #endif

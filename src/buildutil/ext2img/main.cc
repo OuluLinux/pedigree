@@ -44,7 +44,7 @@
 
 #include "DiskImage.h"
 
-#ifdef HAVE_OPENSSL
+#if HAVE_OPENSSL
 #include <openssl/sha.h>
 #endif
 
@@ -99,7 +99,7 @@ extern bool appleProbeDisk(Disk *pDisk);
 class StreamingStderrLogger : public Log::LogCallback
 {
   public:
-    void callback(const LogCord &cord)
+    void callback(const LogCord &cord, bool locked = true)
     {
         for (size_t i = 0; i < cord.length(); ++i)
         {
@@ -499,7 +499,7 @@ bool probeAndMount(const char *image, size_t part)
     else
     {
         // Find the nth partition.
-        if (desiredPartition > mainImage.getNumChildren())
+        if (desiredPartition >= mainImage.getNumChildren())
         {
             std::cerr << "Desired partition does not exist in this image."
                       << std::endl;
@@ -510,7 +510,7 @@ bool probeAndMount(const char *image, size_t part)
     }
 
     // Make sure we actually have a filesystem here.
-    String alias("fs");
+    String alias(FS_ALIAS);
     if (!VFS::instance().mount(pDisk, alias))
     {
         std::cerr << "This partition does not appear to be an ext2 filesystem."
@@ -521,7 +521,21 @@ bool probeAndMount(const char *image, size_t part)
     return true;
 }
 
-#ifdef HAVE_OPENSSL
+bool unmount()
+{
+    String alias(FS_ALIAS);
+    Filesystem *pFs = VFS::instance().lookupFilesystem(alias);
+    if (!pFs) {
+        std::cerr << "Failed to find the ext2 filesystem to unmount it." << std::endl;
+        return false;
+    }
+
+    VFS::instance().removeAllAliases(pFs);
+
+    return true;
+}
+
+#if HAVE_OPENSSL
 void checksumFile(File *pFile)
 {
     uint8_t hash[SHA256_DIGEST_LENGTH];
@@ -557,7 +571,9 @@ void checksumFile(File *pFile)
 
     SHA256_Final(hash, &ctx);
 
-    std::cout << pFile->getFullPath() << ": ";
+    String fullPath;
+    pFile->getFullPath(fullPath);
+    std::cout << static_cast<const char *>(fullPath) << ": ";
     for (size_t i = 0; i < SHA256_DIGEST_LENGTH; ++i)
     {
         std::cout << std::hex << std::setw(2) << std::setfill('0')
@@ -571,10 +587,10 @@ int imageChecksums(const char *image, size_t part = 0)
 {
     if (!probeAndMount(image, part))
     {
-        return 1;
+        return 0;
     }
 
-#ifdef HAVE_OPENSSL
+#if HAVE_OPENSSL
 
     std::vector<File *> files;
     files.push_back(VFS::instance().find(TO_FS_PATH(std::string("/"))));
@@ -616,7 +632,7 @@ int imageChecksums(const char *image, size_t part = 0)
               << std::endl;
 #endif
 
-    return 0;
+    return 1;
 }
 
 int handleImage(
@@ -629,54 +645,55 @@ int handleImage(
 
     // Handle the command list.
     size_t nth = 0;
-    for (auto it = cmdlist.begin(); it != cmdlist.end(); ++it, ++nth)
+    int rc = 0;
+    for (auto it = cmdlist.begin(); it != cmdlist.end() && rc == 0; ++it, ++nth)
     {
         switch (it->what)
         {
             case WriteFile:
                 if ((!writeFile(it->params[0], it->params[1])) && !ignoreErrors)
                 {
-                    return 1;
+                    rc = 1;
                 }
                 break;
             case CreateSymlink:
                 if ((!createSymlink(it->params[0], it->params[1])) &&
                     !ignoreErrors)
                 {
-                    return 1;
+                    rc = 1;
                 }
                 break;
             case CreateHardlink:
                 if ((!createHardlink(it->params[0], it->params[1])) &&
                     !ignoreErrors)
                 {
-                    return 1;
+                    rc = 1;
                 }
                 break;
             case CreateDirectory:
                 if ((!createDirectory(it->params[0])) && !ignoreErrors)
                 {
-                    return 1;
+                    rc = 1;
                 }
                 break;
             case RemoveFile:
                 if ((!removeFile(it->params[0])) && !ignoreErrors)
                 {
-                    return 1;
+                    rc = 1;
                 }
                 break;
             case VerifyFile:
                 if ((!verifyFile(it->params[0], it->params[1])) &&
                     !ignoreErrors)
                 {
-                    return 1;
+                    rc = 1;
                 }
                 break;
             case ChangePermissions:
                 if ((!changePermissions(it->params[0], it->params[1])) &&
                     !ignoreErrors)
                 {
-                    return 1;
+                    rc = 1;
                 }
                 break;
             case ChangeOwner:
@@ -684,7 +701,7 @@ int handleImage(
                         it->params[0], it->params[1], it->params[2])) &&
                     !ignoreErrors)
                 {
-                    return 1;
+                    rc = 1;
                 }
                 break;
             case SetDefaultPermissions:
@@ -692,14 +709,14 @@ int handleImage(
                         it->params[0], it->params[1], it->params[2])) &&
                     !ignoreErrors)
                 {
-                    return 1;
+                    rc = 1;
                 }
                 break;
             case SetDefaultOwners:
                 if ((!setDefaultOwner(it->params[0], it->params[1])) &&
                     !ignoreErrors)
                 {
-                    return 1;
+                    rc = 1;
                 }
                 break;
             default:
@@ -707,7 +724,7 @@ int handleImage(
                 break;
         }
 
-        if ((nth % 10) == 0)
+        if ((!rc) && (nth % 10) == 0)
         {
             double progress = nth / (double) cmdlist.size();
             std::cout << "Progress: " << std::setprecision(4)
@@ -715,12 +732,18 @@ int handleImage(
         }
     }
 
-    std::cout << "\rProgress: 100.0%" << std::endl;
+    if (!rc) {
+        std::cout << "\rProgress: 100.0%" << std::endl;
 
-    std::cout << "Completed command list for image " << image << "."
-              << std::endl;
+        std::cout << "Completed command list for image " << image << "."
+                  << std::endl;
+    }
 
-    return 0;
+    if (!unmount()) {
+        return 1;
+    }
+
+    return rc;
 }
 
 bool parseCommandFile(const char *cmdFile, std::vector<Command> &output)

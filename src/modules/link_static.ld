@@ -2,15 +2,39 @@
 
 SECTIONS
 {
-  .text : {*(.text*)}
-  .data : {*(.data*)}
-  .rodata : {*(.rodata*)}
-  .bss : {*(.bss*)}
+  .text : {
+    *(.text*)
+  }
+
+  .data : {
+    *(.data*)
+    *(.sdata*)
+  }
+
+  .rodata : {
+    *(.rodata*)
+  }
 
   .module_ctors :
   {
     *(.init_array*)
     *(.ctors*)
+  }
+
+  .module_dtors :
+  {
+    *(.fini_array*)
+    *(.dtors*)
+  }
+
+  .modinfo :
+  {
+    *(.modinfo*)
+  }
+
+  .bss : {
+    *(COMMON)
+    *(.bss*)
   }
 
   /* We do a strip to create a real kernel binary, so don't wipe out debug

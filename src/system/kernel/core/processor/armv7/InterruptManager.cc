@@ -19,13 +19,14 @@
 
 #include "InterruptManager.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Serial.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/processor/PhysicalMemoryManager.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/utilities/utility.h"
-#ifdef DEBUGGER
 #include "pedigree/kernel/debugger/Debugger.h"
-#endif
 #include "pedigree/kernel/Log.h"
 
 #define SYSCALL_INTERRUPT_NUMBER 8
@@ -104,7 +105,7 @@ bool ARMV7InterruptManager::registerInterruptHandler(
     return true;
 }
 
-#ifdef DEBUGGER
+#if DEBUGGER
 
 bool ARMV7InterruptManager::registerInterruptHandlerDebugger(
     size_t interruptNumber, InterruptHandler *handler)
@@ -168,7 +169,7 @@ uintptr_t ARMV7InterruptManager::syscall(
 void kdata_abort(InterruptState &state) NORETURN;
 void kdata_abort(InterruptState &state)
 {
-#ifdef DEBUGGER
+#if DEBUGGER
     // Grab the aborted address.
     uintptr_t dfar = 0;
     uintptr_t dfsr = 0;
@@ -230,6 +231,7 @@ void kdata_abort(InterruptState &state)
             sError.append("Unknown fault");
     }
 
+    Machine::instance().getSerial(0)->write(sError);
     ERROR_NOLOCK(static_cast<const char *>(sError));
     Debugger::instance().start(state, sError);
 #else
@@ -243,7 +245,7 @@ void kdata_abort(InterruptState &state)
 void kprefetch_abort(InterruptState &state) NORETURN;
 void kprefetch_abort(InterruptState &state)
 {
-#ifdef DEBUGGER
+#if DEBUGGER
     static LargeStaticString sError;
     sError.clear();
     sError.append("Prefetch Abort at 0x");
@@ -272,7 +274,7 @@ void kswi_handler(InterruptState &state)
                 state.getRegisterName(i) << "=" << Hex << state.getRegister(i));
         }
     }
-#ifdef DEBUGGER
+#if DEBUGGER
     else if (swi == 0xdeb16)
     {
         static LargeStaticString sError;
@@ -360,19 +362,8 @@ void ARMV7InterruptManager::initialiseProcessor()
             0x48200000))
         return;
 
-    // Map in the ARM vector table to 0xFFFF0000
-    if (!VirtualAddressSpace::getKernelAddressSpace().map(
-            reinterpret_cast<physical_uintptr_t>(&__arm_vector_table),
-            reinterpret_cast<void *>(0xFFFF0000),
-            VirtualAddressSpace::Write | VirtualAddressSpace::KernelMode))
-        return;
-
-    // Switch to the high vector for the exception base
-    uint32_t sctlr = 0;
-    asm volatile("MRC p15,0,%0,c1,c0,0" : "=r"(sctlr));
-    if (!(sctlr & 0x2000))
-        sctlr |= 0x2000;
-    asm volatile("MCR p15,0,%0,c1,c0,0" : : "r"(sctlr));
+    // Use our custom IVT
+    __asm__ __volatile__ ("mcr p15, #0, %0, c12, c0, #0" :: "r" (&__arm_vector_table));
 
     // Initialise the MPU INTC
     volatile uint32_t *mpuIntcRegisters = reinterpret_cast<volatile uint32_t *>(
@@ -429,7 +420,7 @@ void ARMV7InterruptManager::interrupt(InterruptState &interruptState)
     // Grab the interrupt number
     size_t intNumber = mpuIntcRegisters[INTCPS_SIR_IRQ] & 0x7F;
 
-#ifdef DEBUGGER
+#if DEBUGGER
     // Call the kernel debugger's handler, if any
     if (m_Instance.m_DbgHandler[intNumber] != 0)
         m_Instance.m_DbgHandler[intNumber]->interrupt(
@@ -451,7 +442,7 @@ ARMV7InterruptManager::ARMV7InterruptManager()
     for (size_t i = 0; i < 256; i++)
     {
         m_Handler[i] = 0;
-#ifdef DEBUGGER
+#if DEBUGGER
         m_DbgHandler[i] = 0;
 #endif
     }

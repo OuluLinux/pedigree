@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS  // don't need them here
+#define LWIP_DONT_PROVIDE_BYTEORDER_FUNCTIONS 1  // don't need them here
 
 #include "modules/system/vfs/File.h"
 #include "modules/system/vfs/VFS.h"
@@ -86,12 +86,12 @@ static bool isSaneSocket(FileDescriptor *f, bool is_create = false)
 }
 
 static err_t sockaddrToIpaddr(
-    const struct sockaddr *saddr, uint16_t &port, ip_addr_t *result,
+    const struct sockaddr_storage *saddr, uint16_t &port, ip_addr_t *result,
     bool isbind = true)
 {
     ByteSet(result, 0, sizeof(*result));
 
-    if (saddr->sa_family == AF_INET)
+    if (saddr->ss_family == AF_INET)
     {
         const struct sockaddr_in *sin =
             reinterpret_cast<const struct sockaddr_in *>(saddr);
@@ -230,7 +230,7 @@ int posix_socketpair(int domain, int type, int protocol, int sv[2])
     return 0;
 }
 
-int posix_connect(int sock, const struct sockaddr *address, socklen_t addrlen)
+int posix_connect(int sock, const struct sockaddr_storage *address, socklen_t addrlen)
 {
     N_NOTICE("connect");
 
@@ -253,7 +253,7 @@ int posix_connect(int sock, const struct sockaddr *address, socklen_t addrlen)
         return -1;
     }
 
-    if (address->sa_family != f->networkImpl->getDomain())
+    if (address->ss_family != f->networkImpl->getDomain())
     {
         // EAFNOSUPPORT
         N_NOTICE(" -> incorrect address family passed to connect()");
@@ -280,14 +280,15 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
         "send(" << sock << ", " << buff << ", " << bufflen << ", " << flags
                 << ")");
 
-#if LOG_SEND_RECV_BUFFERS
-    if (buff && bufflen)
+    EMIT_IF(LOG_SEND_RECV_BUFFERS)
     {
-        String debug;
-        debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
-        N_NOTICE(" -> sending: '" << debug << "'");
+        if (buff && bufflen)
+        {
+            String debug;
+            debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
+            N_NOTICE(" -> sending: '" << debug << "'");
+        }
     }
-#endif
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -300,7 +301,7 @@ ssize_t posix_send(int sock, const void *buff, size_t bufflen, int flags)
 
 ssize_t posix_sendto(
     int sock, const void *buff, size_t bufflen, int flags,
-    struct sockaddr *address, socklen_t addrlen)
+    struct sockaddr_storage *address, socklen_t addrlen)
 {
     N_NOTICE("sendto");
 
@@ -317,14 +318,15 @@ ssize_t posix_sendto(
         "sendto(" << sock << ", " << buff << ", " << bufflen << ", " << flags
                   << ", " << address << ", " << addrlen << ")");
 
-#if LOG_SEND_RECV_BUFFERS
-    if (buff && bufflen)
+    EMIT_IF(LOG_SEND_RECV_BUFFERS)
     {
-        String debug;
-        debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
-        N_NOTICE(" -> sending: '" << debug << "'");
+        if (buff && bufflen)
+        {
+            String debug;
+            debug.assign(reinterpret_cast<const char *>(buff), bufflen, true);
+            N_NOTICE(" -> sending: '" << debug << "'");
+        }
     }
-#endif
 
     FileDescriptor *f = getDescriptor(sock);
     if (!isSaneSocket(f))
@@ -361,21 +363,22 @@ ssize_t posix_recv(int sock, void *buff, size_t bufflen, int flags)
     ssize_t n =
         f->networkImpl->recvfrom(buff, bufflen, flags, nullptr, nullptr);
 
-#if LOG_SEND_RECV_BUFFERS
-    if (buff && n > 0)
+    EMIT_IF(LOG_SEND_RECV_BUFFERS)
     {
-        String debug;
-        debug.assign(reinterpret_cast<const char *>(buff), n, true);
-        N_NOTICE(" -> received: '" << debug << "'");
+        if (buff && n > 0)
+        {
+            String debug;
+            debug.assign(reinterpret_cast<const char *>(buff), n, true);
+            N_NOTICE(" -> received: '" << debug << "'");
+        }
     }
-#endif
 
     N_NOTICE(" -> " << n);
     return n;
 }
 
 ssize_t posix_recvfrom(
-    int sock, void *buff, size_t bufflen, int flags, struct sockaddr *address,
+    int sock, void *buff, size_t bufflen, int flags, struct sockaddr_storage *address,
     socklen_t *addrlen)
 {
     N_NOTICE("recvfrom");
@@ -406,20 +409,21 @@ ssize_t posix_recvfrom(
     ssize_t n =
         f->networkImpl->recvfrom(buff, bufflen, flags, address, addrlen);
 
-#if LOG_SEND_RECV_BUFFERS
-    if (buff && n > 0)
+    EMIT_IF(LOG_SEND_RECV_BUFFERS)
     {
-        String debug;
-        debug.assign(reinterpret_cast<const char *>(buff), n, true);
-        N_NOTICE(" -> received: '" << debug << "'");
+        if (buff && n > 0)
+        {
+            String debug;
+            debug.assign(reinterpret_cast<const char *>(buff), n, true);
+            N_NOTICE(" -> received: '" << debug << "'");
+        }
     }
-#endif
 
     N_NOTICE(" -> " << n);
     return n;
 }
 
-int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
+int posix_bind(int sock, const struct sockaddr_storage *address, socklen_t addrlen)
 {
     N_NOTICE("bind");
 
@@ -440,7 +444,7 @@ int posix_bind(int sock, const struct sockaddr *address, socklen_t addrlen)
         return -1;
     }
 
-    if (f->networkImpl->getDomain() != address->sa_family)
+    if (f->networkImpl->getDomain() != address->ss_family)
     {
         // EAFNOSUPPORT
         return -1;
@@ -468,7 +472,7 @@ int posix_listen(int sock, int backlog)
     return f->networkImpl->listen(backlog);
 }
 
-int posix_accept(int sock, struct sockaddr *address, socklen_t *addrlen)
+int posix_accept(int sock, struct sockaddr_storage *address, socklen_t *addrlen)
 {
     N_NOTICE("accept");
 
@@ -517,7 +521,7 @@ int posix_shutdown(int socket, int how)
 }
 
 int posix_getpeername(
-    int socket, struct sockaddr *address, socklen_t *address_len)
+    int socket, struct sockaddr_storage *address, socklen_t *address_len)
 {
     N_NOTICE("getpeername");
 
@@ -547,7 +551,7 @@ int posix_getpeername(
 }
 
 int posix_getsockname(
-    int socket, struct sockaddr *address, socklen_t *address_len)
+    int socket, struct sockaddr_storage *address, socklen_t *address_len)
 {
     N_NOTICE("getsockname");
 
@@ -706,14 +710,14 @@ bool NetworkSyscalls::create()
 
 ssize_t NetworkSyscalls::sendto(
     const void *buffer, size_t bufferlen, int flags,
-    const struct sockaddr *address, socklen_t addrlen)
+    const struct sockaddr_storage *address, socklen_t addrlen)
 {
     struct iovec iov;
     iov.iov_base = const_cast<void *>(buffer);
     iov.iov_len = bufferlen;
 
     struct msghdr msg;
-    msg.msg_name = const_cast<struct sockaddr *>(address);
+    msg.msg_name = const_cast<struct sockaddr_storage *>(address);
     msg.msg_namelen = addrlen;
     msg.msg_iov = &iov;
     msg.msg_iovlen = 1;
@@ -725,7 +729,7 @@ ssize_t NetworkSyscalls::sendto(
 }
 
 ssize_t NetworkSyscalls::recvfrom(
-    void *buffer, size_t bufferlen, int flags, struct sockaddr *address,
+    void *buffer, size_t bufferlen, int flags, struct sockaddr_storage *address,
     socklen_t *addrlen)
 {
     struct iovec iov;
@@ -897,7 +901,7 @@ bool LwipSocketSyscalls::create()
 }
 
 int LwipSocketSyscalls::connect(
-    const struct sockaddr *address, socklen_t addrlen)
+    const struct sockaddr_storage *address, socklen_t addrlen)
 {
     /// \todo need to track if we've already done a bind() and not bind if so
     ip_addr_t ipaddr;
@@ -971,7 +975,7 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
 
     if (NETCONNTYPE_GROUP(m_Socket->type) == NETCONN_TCP)
     {
-        for (int i = 0; i < msghdr->msg_iovlen; ++i)
+        for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i)
         {
             void *buffer = msghdr->msg_iov[i].iov_base;
             size_t bufferlen = msghdr->msg_iov[i].iov_len;
@@ -993,7 +997,7 @@ ssize_t LwipSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
     else
     {
         struct netbuf *buf = netbuf_new();
-        for (int i = 0; i < msghdr->msg_iovlen; ++i)
+        for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i)
         {
             netbuf_ref(
                 buf, msghdr->msg_iov[i].iov_base, msghdr->msg_iov[i].iov_len);
@@ -1084,7 +1088,7 @@ ssize_t LwipSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
     }
 
     size_t totalLen = 0;
-    for (int i = 0; i < msghdr->msg_iovlen; ++i)
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i)
     {
         void *buffer = msghdr->msg_iov[i].iov_base;
         size_t bufferlen = msghdr->msg_iov[i].iov_len;
@@ -1144,7 +1148,7 @@ int LwipSocketSyscalls::listen(int backlog)
     return 0;
 }
 
-int LwipSocketSyscalls::bind(const struct sockaddr *address, socklen_t addrlen)
+int LwipSocketSyscalls::bind(const struct sockaddr_storage *address, socklen_t addrlen)
 {
     uint16_t port = 0;
     ip_addr_t ipaddr;
@@ -1161,7 +1165,7 @@ int LwipSocketSyscalls::bind(const struct sockaddr *address, socklen_t addrlen)
     return 0;
 }
 
-int LwipSocketSyscalls::accept(struct sockaddr *address, socklen_t *addrlen)
+int LwipSocketSyscalls::accept(struct sockaddr_storage *address, socklen_t *addrlen)
 {
     struct netconn *new_conn;
     err_t err = netconn_accept(m_Socket, &new_conn);
@@ -1235,7 +1239,7 @@ int LwipSocketSyscalls::shutdown(int how)
 }
 
 int LwipSocketSyscalls::getpeername(
-    struct sockaddr *address, socklen_t *address_len)
+    struct sockaddr_storage *address, socklen_t *address_len)
 {
     ip_addr_t peer;
     uint16_t port;
@@ -1258,7 +1262,7 @@ int LwipSocketSyscalls::getpeername(
 }
 
 int LwipSocketSyscalls::getsockname(
-    struct sockaddr *address, socklen_t *address_len)
+    struct sockaddr_storage *address, socklen_t *address_len)
 {
     ip_addr_t self;
     uint16_t port;
@@ -1337,9 +1341,7 @@ bool LwipSocketSyscalls::poll(
         return true;
     }
 
-#ifdef THREADS
-    m_Metadata.lock.acquire();
-#endif
+    ConstexprLockGuard<Mutex, THREADS> guard(m_Metadata.lock);
 
     if (write)
     {
@@ -1366,16 +1368,11 @@ bool LwipSocketSyscalls::poll(
         m_Metadata.semaphores.pushBack(waiter);
     }
 
-#ifdef THREADS
-    m_Metadata.lock.release();
-#endif
-
     return ok;
 }
 
 void LwipSocketSyscalls::unPoll(Semaphore *waiter)
 {
-#ifdef THREADS
     m_Metadata.lock.acquire();
     for (auto it = m_Metadata.semaphores.begin();
          it != m_Metadata.semaphores.end();)
@@ -1390,7 +1387,6 @@ void LwipSocketSyscalls::unPoll(Semaphore *waiter)
         }
     }
     m_Metadata.lock.release();
-#endif
 }
 
 void LwipSocketSyscalls::netconnCallback(
@@ -1402,9 +1398,7 @@ void LwipSocketSyscalls::netconnCallback(
         return;
     }
 
-#ifdef THREADS
-    obj->m_Metadata.lock.acquire();
-#endif
+    ConstexprLockGuard<Mutex, THREADS> guard(obj->m_Metadata.lock);
 
     switch (evt)
     {
@@ -1437,14 +1431,13 @@ void LwipSocketSyscalls::netconnCallback(
     }
 
         /// \todo need a way to do this with lwip when threads are off
-#ifdef THREADS
-    for (auto &it : obj->m_Metadata.semaphores)
+    EMIT_IF(THREADS)
     {
-        it->release();
+        for (auto &it : obj->m_Metadata.semaphores)
+        {
+            it->release();
+        }
     }
-
-    obj->m_Metadata.lock.release();
-#endif
 }
 
 void LwipSocketSyscalls::lwipToSyscallError(err_t err)
@@ -1545,7 +1538,7 @@ bool UnixSocketSyscalls::create()
 }
 
 int UnixSocketSyscalls::connect(
-    const struct sockaddr *address, socklen_t addrlen)
+    const struct sockaddr_storage *address, socklen_t addrlen)
 {
     // Find the remote socket
     const struct sockaddr_un *un =
@@ -1596,7 +1589,7 @@ int UnixSocketSyscalls::connect(
         N_NOTICE(" -> dgram");
     }
 
-    m_RemotePath = pathname;
+    m_RemotePath = pedigree_std::move(pathname);
 
     N_NOTICE(" -> remote is now " << m_RemotePath);
 
@@ -1665,7 +1658,7 @@ ssize_t UnixSocketSyscalls::sendto_msg(const struct msghdr *msghdr)
     N_NOTICE(" -> transmitting!");
 
     uint64_t numWritten = 0;
-    for (int i = 0; i < msghdr->msg_iovlen; ++i)
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i)
     {
         void *buffer = msghdr->msg_iov[i].iov_base;
         size_t bufferlen = msghdr->msg_iov[i].iov_len;
@@ -1701,7 +1694,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
 {
     String remote;
     uint64_t numRead = 0;
-    for (int i = 0; i < msghdr->msg_iovlen; ++i)
+    for (size_t i = 0; i < static_cast<size_t>(msghdr->msg_iovlen); ++i)
     {
         void *buffer = msghdr->msg_iov[i].iov_base;
         size_t bufferlen = msghdr->msg_iov[i].iov_len;
@@ -1723,7 +1716,7 @@ ssize_t UnixSocketSyscalls::recvfrom_msg(struct msghdr *msghdr)
         struct sockaddr_un *un =
             reinterpret_cast<struct sockaddr_un *>(msghdr->msg_name);
         un->sun_family = AF_UNIX;
-        StringCopy(un->sun_path, remote);
+        StringCopy(un->sun_path, remote.cstr());
         msghdr->msg_namelen = sizeof(sa_family_t) + remote.length();
     }
 
@@ -1758,7 +1751,7 @@ int UnixSocketSyscalls::listen(int backlog)
     return 0;
 }
 
-int UnixSocketSyscalls::bind(const struct sockaddr *address, socklen_t addrlen)
+int UnixSocketSyscalls::bind(const struct sockaddr_storage *address, socklen_t addrlen)
 {
     /// \todo unbind existing socket if one exists.
 
@@ -1841,12 +1834,12 @@ int UnixSocketSyscalls::bind(const struct sockaddr *address, socklen_t addrlen)
     }
 
     m_Socket = socket;
-    m_LocalPath = adjusted_pathname;
+    m_LocalPath = pedigree_std::move(adjusted_pathname);
 
     return 0;
 }
 
-int UnixSocketSyscalls::accept(struct sockaddr *address, socklen_t *addrlen)
+int UnixSocketSyscalls::accept(struct sockaddr_storage *address, socklen_t *addrlen)
 {
     N_NOTICE("unix accept");
     UnixSocket *remote = m_Socket->getSocket(isBlocking());
@@ -1867,9 +1860,10 @@ int UnixSocketSyscalls::accept(struct sockaddr *address, socklen_t *addrlen)
         if (remote->getName().length())
         {
             // Named.
-            String name = remote->getFullPath();
+            String name;
+            remote->getFullPath(name);
 
-            StringCopy(sun->sun_path, name);
+            StringCopy(sun->sun_path, name.cstr());
             *addrlen = sizeof(sa_family_t) + name.length();
         }
         else
@@ -1884,7 +1878,7 @@ int UnixSocketSyscalls::accept(struct sockaddr *address, socklen_t *addrlen)
         obj->m_Socket = remote;
         obj->m_Remote = remote->getOther();
         obj->m_LocalPath = String();
-        obj->m_RemotePath = m_Socket->getFullPath();
+        m_Socket->getFullPath(obj->m_RemotePath);
         obj->create();
 
         size_t fd = getAvailableDescriptor();
@@ -1909,12 +1903,12 @@ int UnixSocketSyscalls::shutdown(int how)
 }
 
 int UnixSocketSyscalls::getpeername(
-    struct sockaddr *address, socklen_t *address_len)
+    struct sockaddr_storage *address, socklen_t *address_len)
 {
     N_NOTICE("UNIX getpeername");
     struct sockaddr_un *sun = reinterpret_cast<struct sockaddr_un *>(address);
     sun->sun_family = AF_UNIX;
-    StringCopy(sun->sun_path, m_RemotePath);
+    StringCopy(sun->sun_path, m_RemotePath.cstr());
     *address_len = sizeof(sa_family_t) + m_RemotePath.length();
 
     N_NOTICE(" -> " << m_RemotePath);
@@ -1922,12 +1916,12 @@ int UnixSocketSyscalls::getpeername(
 }
 
 int UnixSocketSyscalls::getsockname(
-    struct sockaddr *address, socklen_t *address_len)
+    struct sockaddr_storage *address, socklen_t *address_len)
 {
     N_NOTICE("UNIX getsockname");
     struct sockaddr_un *sun = reinterpret_cast<struct sockaddr_un *>(address);
     sun->sun_family = AF_UNIX;
-    StringCopy(sun->sun_path, m_LocalPath);
+    StringCopy(sun->sun_path, m_LocalPath.cstr());
     *address_len = sizeof(sa_family_t) + m_LocalPath.length();
 
     N_NOTICE(" -> " << m_LocalPath);

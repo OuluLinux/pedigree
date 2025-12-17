@@ -95,36 +95,49 @@
 typedef bool (*ModuleEntry)();
 typedef void (*ModuleExit)();
 
-#ifdef STATIC_DRIVERS
-
 #define MODULE_TAG 0xdeadbaba
 
 struct ModuleInfo
 {
-    ModuleInfo(
-        const char *newName, ModuleEntry newEntry, ModuleExit newExit,
-        const char **newDeps)
-    {
-        tag = MODULE_TAG;
-        name = newName;
-        entry = newEntry;
-        exit = newExit;
-        dependencies = newDeps;
-    }
-
     uint32_t tag;
     const char *name;
     ModuleEntry entry;
     ModuleExit exit;
     const char **dependencies;
+    const char **opt_dependencies;
 } PACKED;
+
+#if STATIC_DRIVERS
+
+extern ModuleInfo *g_StaticDrivers[128];
+extern size_t g_StaticDriverN;
+
+class StaticDriverModule
+{
+    public:
+        StaticDriverModule(const char *name, ModuleEntry entry, ModuleExit exit, const char **deps, const char **opt_deps = nullptr)
+        {
+            info.tag = MODULE_TAG;
+            info.name = name;
+            info.entry = entry;
+            info.exit = exit;
+            info.dependencies = deps;
+            info.opt_dependencies = opt_deps;
+            g_StaticDrivers[g_StaticDriverN++] = &info;
+        }
+
+        ModuleInfo info;
+};
 
 #define MODULE_INFO2(name, entry, exit, ...)            \
     static const char *__mod_deps[] = {__VA_ARGS__, 0}; \
-    static ModuleInfo __module SECTION(".modinfo")      \
-        USED(name, entry, exit, __mod_deps);
+    static StaticDriverModule __module(name, entry, exit, __mod_deps);
 
-#define MODULE_OPTIONAL_DEPENDS(...)
+#define MODULE_OPTIONAL_DEPENDS(...)                        \
+    static const char *__mod_opt_deps[] = {__VA_ARGS__, 0}; \
+    static void CONSTRUCTOR __add_optional_deps() {         \
+        __module.info.opt_dependencies = __mod_opt_deps;    \
+    }
 
 #else
 

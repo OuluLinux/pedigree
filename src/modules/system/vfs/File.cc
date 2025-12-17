@@ -69,15 +69,8 @@ File::File()
     : m_Name(), m_AccessedTime(0), m_ModifiedTime(0), m_CreationTime(0),
       m_Inode(0), m_pFilesystem(0), m_Size(0), m_pParent(0), m_nWriters(0),
       m_nReaders(0), m_Uid(0), m_Gid(0), m_Permissions(0),
-      m_DataCache(FILE_BAD_BLOCK), m_bDirect(false)
-#ifndef VFS_NOMMU
-      ,
-      m_FillCache()
-#endif
-#ifdef THREADS
-      ,
-      m_Lock(), m_MonitorTargets()
-#endif
+      m_DataCache(FILE_BAD_BLOCK), m_bDirect(false),
+      m_FillCache(), m_Lock(), m_MonitorTargets()
 {
 }
 
@@ -88,15 +81,8 @@ File::File(
     : m_Name(name), m_AccessedTime(accessedTime), m_ModifiedTime(modifiedTime),
       m_CreationTime(creationTime), m_Inode(inode), m_pFilesystem(pFs),
       m_Size(size), m_pParent(pParent), m_nWriters(0), m_nReaders(0), m_Uid(0),
-      m_Gid(0), m_Permissions(0), m_DataCache(FILE_BAD_BLOCK), m_bDirect(false)
-#ifndef VFS_NOMMU
-      ,
-      m_FillCache()
-#endif
-#ifdef THREADS
-      ,
-      m_Lock(), m_MonitorTargets()
-#endif
+      m_Gid(0), m_Permissions(0), m_DataCache(FILE_BAD_BLOCK), m_bDirect(false),
+      m_FillCache(), m_Lock(), m_MonitorTargets()
 {
     size_t maxBlock = size / getBlockSize();
     if (size % getBlockSize())
@@ -247,7 +233,11 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
         return ~0UL;
     }
 
-#ifndef VFS_NOMMU
+    EMIT_IF(VFS_NOMMU)
+    {
+        return ~0UL;
+    }
+
     // Sanitise input.
     size_t blockSize = getBlockSize();
     size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
@@ -307,7 +297,6 @@ physical_uintptr_t File::getPhysicalPage(size_t offset)
 
         return phys;
     }
-#endif  // VFS_NOMMU
 
     return ~0UL;
 }
@@ -319,7 +308,6 @@ void File::returnPhysicalPage(size_t offset)
         return;
     }
 
-#ifndef VFS_NOMMU
     // Sanitise input.
     size_t blockSize = getBlockSize();
     size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
@@ -345,14 +333,11 @@ void File::returnPhysicalPage(size_t offset)
     {
         unpinBlock(offset);
     }
-#endif  // VFS_NOMMU
 }
 
 void File::sync()
 {
-#ifdef THREADS
     LockGuard<Mutex> guard(m_Lock);
-#endif
 
     const size_t blockSize = getBlockSize();
     for (size_t i = 0; i < m_DataCache.count(); ++i)
@@ -408,7 +393,7 @@ void File::setModifiedTime(Time::Timestamp t)
     fileAttributeChanged();
 }
 
-String File::getName() const
+const String &File::getName() const
 {
     return m_Name;
 }
@@ -601,7 +586,9 @@ uint64_t File::writeBytewise(
 
 uintptr_t File::readBlock(uint64_t location)
 {
-    ERROR("File: base class readBlock() called for " << getFullPath());
+    String fullPath;
+    getFullPath(fullPath);
+    ERROR("File: base class readBlock() called for " << fullPath);
     // only truly breaks on debug-enabled builds - in release builds this will
     // just cause an error in the caller
     assert(false);
@@ -653,8 +640,49 @@ void File::setGidOnly(size_t gid)
 
 void File::dataChanged()
 {
-#ifdef THREADS
-    bool bAny = false;
+    EMIT_IF(THREADS)
+    {
+        bool bAny = false;
+        {
+            LockGuard<Mutex> guard(m_Lock);
+
+            for (List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
+                 it != m_MonitorTargets.end(); it++)
+            {
+                MonitorTarget *pMT = *it;
+
+                pMT->pThread->sendEvent(pMT->pEvent);
+                delete pMT;
+
+                bAny = true;
+            }
+
+            m_MonitorTargets.clear();
+        }
+
+        // If anything was waiting on a change, wake it up now.
+        if (bAny)
+        {
+            Scheduler::instance().yield();
+        }
+    }
+}
+
+void File::monitor(Thread *pThread, Event *pEvent)
+{
+    assert(pThread);
+    assert(pEvent);
+
+    EMIT_IF(THREADS)
+    {
+        LockGuard<Mutex> guard(m_Lock);
+        m_MonitorTargets.pushBack(new MonitorTarget(pThread, pEvent));
+    }
+}
+
+void File::cullMonitorTargets(Thread *pThread)
+{
+    EMIT_IF(THREADS)
     {
         LockGuard<Mutex> guard(m_Lock);
 
@@ -663,51 +691,16 @@ void File::dataChanged()
         {
             MonitorTarget *pMT = *it;
 
-            pMT->pThread->sendEvent(pMT->pEvent);
-            delete pMT;
-
-            bAny = true;
-        }
-
-        m_MonitorTargets.clear();
-    }
-
-    // If anything was waiting on a change, wake it up now.
-    if (bAny)
-    {
-        Scheduler::instance().yield();
-    }
-#endif
-}
-
-void File::monitor(Thread *pThread, Event *pEvent)
-{
-#ifdef THREADS
-    LockGuard<Mutex> guard(m_Lock);
-    m_MonitorTargets.pushBack(new MonitorTarget(pThread, pEvent));
-#endif
-}
-
-void File::cullMonitorTargets(Thread *pThread)
-{
-#ifdef THREADS
-    LockGuard<Mutex> guard(m_Lock);
-
-    for (List<MonitorTarget *>::Iterator it = m_MonitorTargets.begin();
-         it != m_MonitorTargets.end(); it++)
-    {
-        MonitorTarget *pMT = *it;
-
-        if (pMT->pThread == pThread)
-        {
-            delete pMT;
-            m_MonitorTargets.erase(it);
-            it = m_MonitorTargets.begin();
-            if (it == m_MonitorTargets.end())
-                return;
+            if (pMT->pThread == pThread)
+            {
+                delete pMT;
+                m_MonitorTargets.erase(it);
+                it = m_MonitorTargets.begin();
+                if (it == m_MonitorTargets.end())
+                    return;
+            }
         }
     }
-#endif
 }
 
 void File::getFilesystemLabel(HugeStaticString &s)
@@ -715,7 +708,7 @@ void File::getFilesystemLabel(HugeStaticString &s)
     s = m_pFilesystem->getVolumeLabel();
 }
 
-String File::getFullPath(bool bWithLabel)
+void File::getFullPath(String &result, bool bWithLabel)
 {
     HugeStaticString str;
     HugeStaticString tmp;
@@ -754,14 +747,19 @@ String File::getFullPath(bool bWithLabel)
         ERROR("File::getFullPath called without a filesystem!");
     }
 
-    return String(str);
+    result.assign(str, str.length());
+}
+
+String File::getFullPath(bool bWithLabel)
+{
+    String path;
+    getFullPath(path, bWithLabel);
+    return path;
 }
 
 uintptr_t File::getCachedPage(size_t block, bool locked)
 {
-#ifdef THREADS
     LockGuard<Mutex> guard(m_Lock, locked);
-#endif
 
     DataCacheKey key(block);
     auto result = m_DataCache.lookup(key);
@@ -777,9 +775,7 @@ uintptr_t File::getCachedPage(size_t block, bool locked)
 
 void File::setCachedPage(size_t block, uintptr_t value, bool locked)
 {
-#ifdef THREADS
     LockGuard<Mutex> guard(m_Lock, locked);
-#endif
 
     assert(value);
 
@@ -803,14 +799,17 @@ void File::setCachedPage(size_t block, uintptr_t value, bool locked)
 
 bool File::useFillCache() const
 {
-#ifdef VFS_NOMMU
-    // No fill cache in NOMMU builds.
-    return false;
-#else
-    size_t blockSize = getBlockSize();
-    size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
-    return blockSize < nativeBlockSize;
-#endif
+    EMIT_IF(VFS_NOMMU)
+    {
+        // No fill cache in NOMMU builds.
+        return false;
+    }
+    else
+    {
+        size_t blockSize = getBlockSize();
+        size_t nativeBlockSize = PhysicalMemoryManager::getPageSize();
+        return blockSize < nativeBlockSize;
+    }
 }
 
 uintptr_t File::readIntoCache(uintptr_t block)
@@ -828,7 +827,6 @@ uintptr_t File::readIntoCache(uintptr_t block)
     size_t blockOffset = offset & mask;
     offset &= ~mask;
 
-#ifndef VFS_NOMMU
     if (useFillCache())
     {
         // Using Cache::insert() here is atomic compared to if we did a
@@ -860,7 +858,6 @@ uintptr_t File::readIntoCache(uintptr_t block)
         NOTICE("readIntoCache: fillcache blockOffset=" << blockOffset);
         return vaddr + blockOffset;
     }
-#endif
 
     uintptr_t buff = FILE_BAD_BLOCK;
     if (!m_bDirect)

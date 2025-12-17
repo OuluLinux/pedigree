@@ -58,7 +58,7 @@ class Pc : public Machine
     virtual void initialise3();
     virtual void deinitialise();
 
-#if defined(MULTIPROCESSOR)
+#if MULTIPROCESSOR
     void initialiseProcessor() INITIALISATION_ONLY;
 #endif
 
@@ -74,16 +74,16 @@ class Pc : public Machine
     virtual Keyboard *getKeyboard();
     virtual void setKeyboard(Keyboard *kb);
 
-#if defined(APIC)
+#if APIC
     /** Get the Local APIC class instance
      *\return reference to the Local APIC class instance */
     inline LocalApic &getLocalApic()
     {
-        return m_LocalApic;
+        return *m_LocalApic;
     }
 #endif
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     virtual void stopAllOtherProcessors();
 #endif
 
@@ -99,27 +99,27 @@ class Pc : public Machine
      */
     virtual ~Pc();
 
-    X86Serial m_pSerial[4];
-    X86Vga m_Vga;
+    X86Serial *m_pSerial[4];
+    X86Vga *m_Vga;
     Keyboard *m_pKeyboard;
 
 #if defined(SMBIOS)
-    SMBios m_SMBios;
+    SMBios *m_SMBios;
 #endif
 
-#if defined(APIC)
-    LocalApic m_LocalApic;
+#if APIC
+    LocalApic *m_LocalApic;
 #endif
 
     static Pc m_Instance;
 
     // Hardware devices.
-    X86Keyboard m_Keyboard;
-    Bus m_IsaBus;
-    Controller m_AtaMaster;
-    Controller m_AtaSlave;
-    Ps2Controller m_Ps2Controller;
-    Device m_Watchdog;
+    X86Keyboard *m_Keyboard;
+    Bus *m_IsaBus;
+    Controller *m_AtaMaster;
+    Controller *m_AtaSlave;
+    Ps2Controller *m_Ps2Controller;
+    Device *m_Watchdog;
 };
 
 #endif

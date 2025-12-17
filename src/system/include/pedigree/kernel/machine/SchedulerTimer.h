@@ -30,6 +30,7 @@ class SchedulerTimer
 {
   public:
     virtual bool registerHandler(TimerHandler *handler) = 0;
+    virtual void removeHandler(TimerHandler *handler) = 0;
 
   protected:
     /** The default constructor */

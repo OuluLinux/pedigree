@@ -21,15 +21,11 @@
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/utilities/Iterator.h"
 
-#ifdef THREADS
-#define RAII_LOCK LockGuard<Mutex> guard(m_Lock)
-#else
-#define RAII_LOCK
-#endif
+#define RAII_LOCK ConstexprLockGuard<Mutex, THREADS> guard(m_Lock)
 
 SymbolTable::SymbolTable(Elf *pElf)
     : m_LocalSymbols(), m_GlobalSymbols(), m_WeakSymbols(),
-      m_pOriginatingElf(pElf)
+      m_pOriginatingElf(pElf),  m_bPreallocated(false)
 {
 }
 
@@ -61,9 +57,7 @@ void SymbolTable::insertMultiple(
     uintptr_t value)
 {
     RAII_LOCK;
-#ifdef THREADS
-    LockGuard<Mutex> guard2(pOther->m_Lock);
-#endif
+    ConstexprLockGuard<Mutex, THREADS> guard2(pOther->m_Lock);
 
     SharedPointer<Symbol> ptr = doInsert(name, binding, pParent, value);
     if (pOther)
@@ -81,6 +75,8 @@ void SymbolTable::preallocate(
 
     tree = getOrInsertTree(localElf, Weak);
     tree->reserve(numWeak);
+
+    m_bPreallocated = true;
 }
 
 void SymbolTable::preallocateAdditional(
@@ -94,6 +90,13 @@ void SymbolTable::preallocateAdditional(
 
     tree = getOrInsertTree(localElf);
     tree->reserve(tree->count() + numLocal);
+
+    m_bPreallocated = true;
+}
+
+bool SymbolTable::hasPreallocated() const
+{
+    return m_bPreallocated;
 }
 
 SharedPointer<SymbolTable::Symbol> SymbolTable::doInsert(

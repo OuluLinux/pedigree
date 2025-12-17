@@ -399,50 +399,60 @@ static void xCallback2(sqlite3_context *context, int n, sqlite3_value **values)
     sqlite3_result_int(context, 0);
 }
 
-#ifdef STATIC_DRIVERS
-#include "config_database.h"
-#elif !defined(HOSTED)
-// Memory region containing the config database.
+static uint8_t file[0] = {};
+
+// Memory region containing the config database. Not used if static drivers are
+// being used, but used in all other cases.
 MemoryRegion region("Config");
-#endif
 
 // Entry point for --gc-sections.
 static bool init()
 {
-#ifndef STATIC_DRIVERS
-    if (!g_pBootstrapInfo->isDatabaseLoaded())
-        FATAL("Database not loaded, cannot continue.");
-
-    uint8_t *pPhys = g_pBootstrapInfo->getDatabaseAddress();
-    size_t sSize = g_pBootstrapInfo->getDatabaseSize();
-
-    if ((reinterpret_cast<physical_uintptr_t>(pPhys) &
-         (PhysicalMemoryManager::getPageSize() - 1)) != 0)
-        panic("Config: Alignment issues");
-
-#ifdef HOSTED
-    g_pFile = new uint8_t[sSize];
-    MemoryCopy(g_pFile, pPhys, sSize);
-    g_FileSz = sSize;
-#else
-    if (PhysicalMemoryManager::instance().allocateRegion(
-            region,
-            (sSize + PhysicalMemoryManager::getPageSize() - 1) /
-                PhysicalMemoryManager::getPageSize(),
-            PhysicalMemoryManager::continuous, VirtualAddressSpace::KernelMode,
-            reinterpret_cast<physical_uintptr_t>(pPhys)) == false)
+    EMIT_IF(!STATIC_DRIVERS)
     {
-        ERROR("Config: allocateRegion failed.");
-        return false;
-    }
+        if (!g_pBootstrapInfo->isDatabaseLoaded())
+            FATAL("Database not loaded, cannot continue.");
 
-    g_pFile = reinterpret_cast<uint8_t *>(region.virtualAddress());
-    g_FileSz = sSize;
-#endif  // HOSTED
-#else
-    g_pFile = file;
-    g_FileSz = sizeof file;
-#endif
+        uint8_t *pPhys = g_pBootstrapInfo->getDatabaseAddress();
+        size_t sSize = g_pBootstrapInfo->getDatabaseSize();
+
+        if ((reinterpret_cast<physical_uintptr_t>(pPhys) &
+             (PhysicalMemoryManager::getPageSize() - 1)) != 0)
+            panic("Config: Alignment issues");
+
+        EMIT_IF(HOSTED)
+        {
+            g_pFile = new uint8_t[sSize];
+            MemoryCopy(g_pFile, pPhys, sSize);
+            g_FileSz = sSize;
+        }
+        else
+        {
+            if (PhysicalMemoryManager::instance().allocateRegion(
+                    region,
+                    (sSize + PhysicalMemoryManager::getPageSize() - 1) /
+                        PhysicalMemoryManager::getPageSize(),
+                    PhysicalMemoryManager::continuous,
+                    VirtualAddressSpace::KernelMode |
+                        VirtualAddressSpace::Write,
+                    reinterpret_cast<physical_uintptr_t>(pPhys)) == false)
+            {
+                ERROR("Config: allocateRegion failed.");
+                return false;
+            }
+
+            g_pFile = reinterpret_cast<uint8_t *>(region.virtualAddress());
+            g_FileSz = sSize;
+        }
+    }
+    else
+    {
+        extern char embeddedConfigDb[];
+        extern unsigned long embeddedConfigDb_length;
+
+        g_pFile = reinterpret_cast<uint8_t *>(embeddedConfigDb);
+        g_FileSz = embeddedConfigDb_length;
+    }
 
     sqlite3_initialize();
     int ret = sqlite3_open("root»/.pedigree-root", &g_pSqlite);
@@ -467,9 +477,7 @@ static void destroy()
     sqlite3_close(g_pSqlite);
     sqlite3_shutdown();
 
-#if !defined(STATIC_DRIVERS) && !defined(HOSTED)
     region.free();
-#endif
 }
 
 MODULE_INFO("config", &init, &destroy);

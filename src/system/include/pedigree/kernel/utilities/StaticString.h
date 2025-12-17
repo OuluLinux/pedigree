@@ -22,6 +22,7 @@
 
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 
@@ -77,6 +78,12 @@ class EXPORTED_PUBLIC StaticString
         assign(pSrc, len);
     }
 
+    /** Creates a StaticString from a String object. */
+    StaticString(const String &str)
+    {
+        assign(str.cstr(), str.length());
+    }
+
     /**
      * Copy constructor - creates a StaticString from another StaticString.
      * Copies the memory associated with src.
@@ -103,7 +110,7 @@ class EXPORTED_PUBLIC StaticString
     }
 
     template <typename T>
-    StaticString &operator+=(T i)
+    StaticString &operator+=(const T &i)
     {
         append(i);
         return *this;
@@ -138,6 +145,11 @@ class EXPORTED_PUBLIC StaticString
         updateHash();
     }
 
+    void assign(const String &str)
+    {
+        assign(str.cstr(), str.length());
+    }
+
     template <unsigned int N2>
     void assign(const StaticString<N2> &other)
     {
@@ -145,6 +157,12 @@ class EXPORTED_PUBLIC StaticString
     }
 
     StaticString &operator=(const char *str)
+    {
+        assign(str);
+        return *this;
+    }
+
+    StaticString &operator=(const String &str)
     {
         assign(str);
         return *this;
@@ -213,7 +231,7 @@ class EXPORTED_PUBLIC StaticString
 
     int intValue(int nBase = 0) const
     {
-        const char *pEnd;
+        char *pEnd;
         int ret = StringToUnsignedLong(m_pData, &pEnd, nBase);
         if (pEnd == m_pData)
             return -1;  // Failed to find anything.
@@ -223,7 +241,7 @@ class EXPORTED_PUBLIC StaticString
 
     uintptr_t uintptrValue(int nBase = 0) const
     {
-        const char *pEnd;
+        char *pEnd;
         uintptr_t ret = StringToUnsignedLong(m_pData, &pEnd, nBase);
         if (pEnd == m_pData)
             return ~0UL;  // Failed to find anything.
@@ -273,7 +291,7 @@ class EXPORTED_PUBLIC StaticString
     }
 
     template <typename T>
-    StaticString &operator<<(T t)
+    StaticString &operator<<(const T &t)
     {
         append(t);
         return *this;
@@ -422,7 +440,7 @@ class EXPORTED_PUBLIC StaticString
                 m_pData[i + length()] = '\0';
                 m_Length += nLen - length2;
 
-                nLen - length2;
+                nLen = length2;
             }
         }
 
@@ -455,6 +473,11 @@ class EXPORTED_PUBLIC StaticString
         check();
 
         updateHash();
+    }
+
+    void append(const String &str)
+    {
+        append(str.cstr(), str.length());
     }
 
     void appendBytes(const char *bytes, size_t numBytes)

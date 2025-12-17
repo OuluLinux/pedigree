@@ -34,6 +34,11 @@
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/utility.h"
 
+#if HOSTED
+#include <stdio.h>
+#include <stdlib.h>
+#endif
+
 static size_t newlineCount(const char *pString)
 {
     size_t nNewlines = 0;
@@ -122,6 +127,11 @@ void panic(const char *msg)
 {
     static String graphicsService("graphics");
 
+#if HOSTED
+    fprintf(stderr, "panic: %s\n", msg);
+    abort();
+#endif
+
     Processor::setInterrupts(false);
 
     // Drop out of whatever graphics mode we were in
@@ -142,7 +152,7 @@ void panic(const char *msg)
     if (bSuccess && !provider.bTextModes)
         provider.pDisplay->setScreenMode(0);
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
     Machine::instance().stopAllOtherProcessors();
 #endif
 
@@ -159,7 +169,7 @@ void panic(const char *msg)
     {
         static LocalIO localIO(
             Machine::instance().getVga(0), Machine::instance().getKeyboard());
-#ifdef DONT_LOG_TO_SERIAL
+#if DONT_LOG_TO_SERIAL
         pInterfaces[0] = &localIO;
         nInterfaces = 1;
 #else
@@ -168,7 +178,7 @@ void panic(const char *msg)
         nInterfaces = 2;
 #endif
     }
-#ifndef DONT_LOG_TO_SERIAL
+#if !DONT_LOG_TO_SERIAL
     else
     {
         pInterfaces[0] = &serialIO;

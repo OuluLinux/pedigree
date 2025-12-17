@@ -27,6 +27,7 @@
 #include "pedigree/kernel/machine/IrqHandler.h"
 #include "pedigree/kernel/machine/types.h"
 #include "pedigree/kernel/process/Mutex.h"
+#include "pedigree/kernel/processor/InterruptHandler.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/state_forward.h"
 #include "pedigree/kernel/processor/types.h"
@@ -39,7 +40,7 @@ class IoBase;
 
 /** Device driver for the Ehci class */
 class Ehci : public UsbHub,
-#ifdef X86_COMMON
+#if X86_COMMON
              public IrqHandler,
 #else
              public InterruptHandler,
@@ -125,7 +126,7 @@ class Ehci : public UsbHub,
         uint32_t res1 : 5;
         uint32_t pQTD : 27;
 
-        qTD overlay;
+        qTD overlay ALIGN(32);
 
         struct MetaData
         {
@@ -147,7 +148,7 @@ class Ehci : public UsbHub,
 
     virtual void getName(String &str)
     {
-        str = "EHCI";
+        str.assign("EHCI", 5);
     }
 
     virtual void addTransferToTransaction(
@@ -163,7 +164,7 @@ class Ehci : public UsbHub,
         void (*pCallback)(uintptr_t, ssize_t), uintptr_t pParam = 0);
 
 /// IRQ handler
-#ifdef X86_COMMON
+#if X86_COMMON
     virtual bool irq(irq_id_t number, InterruptState &state);
 #else
     virtual void interrupt(size_t number, InterruptState &state);

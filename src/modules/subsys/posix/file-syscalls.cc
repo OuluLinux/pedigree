@@ -111,7 +111,7 @@ File *findFileWithAbiFallbacks(const String &name, File *cwd)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     return pSubsystem->findFile(name, cwd);
 }
 
@@ -194,6 +194,8 @@ static bool doChdir(File *dir)
 static bool
 doStat(const char *name, File *pFile, struct stat *st, bool traverse = true)
 {
+    static ConstantString nullName = MakeConstantString("null");
+
     if (traverse)
     {
         pFile = traverseSymlink(pFile);
@@ -208,7 +210,7 @@ doStat(const char *name, File *pFile, struct stat *st, bool traverse = true)
     /// \todo files really should be able to expose their "type"...
     if (ConsoleManager::instance().isConsole(pFile) ||
         (name && !StringCompare(name, "/dev/null")) ||
-        (pFile && pFile->getName() == "null"))
+        (pFile && pFile->getName() == nullName))
     {
         F_NOTICE("    -> S_IFCHR");
         mode = S_IFCHR;
@@ -293,7 +295,7 @@ doStat(const char *name, File *pFile, struct stat *st, bool traverse = true)
     if (pFs == g_pDevFs)
     {
         if ((name && !StringCompare(name, "/dev/null")) ||
-            (pFile->getName() == "null"))
+            (pFile->getName() == nullName))
         {
             F_NOTICE("/dev/null, fixing st_rdev");
             // major/minor device numbers
@@ -437,7 +439,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     bool fixFilesystemPaths = pSubsystem->getAbi() != PosixSubsystem::LinuxAbi;
 
     // Rebase /dev onto the devfs. /dev/tty is special.
@@ -453,7 +455,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
                 *onDevFs = true;
         }
 
-        nameToOpen = name;
+        nameToOpen.assign(name);
         return true;
     }
     else if (!StringCompareN(name, "/@/", StringLength("/@/")))
@@ -464,7 +466,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         const char *newName = name + StringLength("/@/");
         if (*newName == '/')
             ++newName;
-        nameToOpen = newName;
+        nameToOpen.assign(newName);
         return true;
     }
     else
@@ -496,7 +498,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 #if ENABLE_VERBOSE_NORMALISATION
                 F_NOTICE(" -> direct remap to " << remap->to);
 #endif
-                nameToOpen = remap->to;
+                nameToOpen.assign(remap->to);
                 ok = true;
                 break;
             }
@@ -513,7 +515,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
                 if (*(name + StringLength(remap->from)) == '/')
                 {
                     // good
-                    nameToOpen = remap->to;
+                    nameToOpen.assign(remap->to);
                     nameToOpen += (name + StringLength(remap->from));
 #if ENABLE_VERBOSE_NORMALISATION
                     F_NOTICE(
@@ -541,7 +543,7 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 
         if (!ok)
         {
-            nameToOpen = name;
+            nameToOpen.assign(name);
             return false;
         }
 
@@ -551,13 +553,13 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
 
 int posix_close(int fd)
 {
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
     F_NOTICE("close(" << fd << ")");
 #endif
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -572,7 +574,7 @@ int posix_close(int fd)
         return -1;
     }
 
-#ifndef VERBOSE_KERNEL
+#if !VERBOSE_KERNEL
     F_NOTICE("close(" << fd << ")");
 #endif
 
@@ -611,7 +613,7 @@ int posix_read(int fd, char *ptr, int len)
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -717,7 +719,7 @@ int posix_write(int fd, char *ptr, int len, bool nocheck)
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -845,7 +847,7 @@ off_t posix_lseek(int file, off_t ptr, int dir)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -927,7 +929,9 @@ int posix_realpath(const char *path, char *buf, size_t bufsize)
     }
 
     String actualPath("/@/");
-    actualPath += f->getFullPath(true);
+    String fullPath;
+    f->getFullPath(fullPath, true);
+    actualPath += fullPath;
     if (actualPath.length() > (bufsize - 1))
     {
         SYSCALL_ERROR(NameTooLong);
@@ -973,7 +977,9 @@ int posix_getcwd(char *buf, size_t maxlen)
 
     // Absolute path syntax.
     String str("/@/");
-    str += curr->getFullPath(true);
+    String fullPath;
+    curr->getFullPath(fullPath, true);
+    str += fullPath;
 
     size_t maxLength = str.length();
     if (maxLength > maxlen)
@@ -1015,7 +1021,7 @@ static int getdents_common(
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -1206,7 +1212,7 @@ int posix_ioctl(int fd, size_t command, void *buf)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -1733,7 +1739,7 @@ int posix_dup(int fd)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -1773,7 +1779,7 @@ int posix_dup2(int fd1, int fd2)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -1817,7 +1823,7 @@ int posix_isatty(int fd)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -1846,7 +1852,7 @@ int posix_fcntl(int fd, int cmd, void *arg)
     Thread *pThread = Processor::information().getCurrentThread();
     Process *pProcess = pThread->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -1961,7 +1967,7 @@ void *posix_mmap(void *addr, size_t len, int prot, int flags, int fd, off_t off)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -2212,7 +2218,7 @@ int posix_ftruncate(int a, off_t b)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -2269,7 +2275,7 @@ int posix_fsync(int fd)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -2333,7 +2339,7 @@ pedigree_get_mount(char *mount_buf, char *info_buf, size_t n)
                     info += s;
                 }
                 else
-                    info = "no disk";
+                    info.assign("no disk", 8);
 
                 StringCopy(mount_buf, static_cast<const char *>(mount));
                 StringCopy(info_buf, static_cast<const char *>(info));
@@ -2374,7 +2380,7 @@ int posix_fchdir(int fd)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -2435,7 +2441,7 @@ int posix_fstatvfs(int fd, struct statvfs *buf)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -2604,7 +2610,7 @@ static File *check_dirfd(int dirfd, int flags = 0)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         F_NOTICE("  -> No subsystem for this process!");
@@ -2666,7 +2672,7 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         F_NOTICE("  -> No subsystem for this process!");
@@ -2704,7 +2710,7 @@ int posix_openat(int dirfd, const char *pathname, int flags, mode_t mode)
     bool openingCtty = false;
     String nameToOpen;
     normalisePath(nameToOpen, pathname, &onDevFs);
-    if (nameToOpen == "/dev/tty")
+    if (nameToOpen.compare("/dev/tty"))
     {
         openingCtty = true;
 
@@ -3023,7 +3029,7 @@ int posix_fchownat(
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         F_NOTICE("  -> No subsystem for this process!");
@@ -3330,7 +3336,7 @@ int posix_linkat(
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -3530,7 +3536,7 @@ int posix_fchmodat(int dirfd, const char *pathname, mode_t mode, int flags)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         F_NOTICE("  -> No subsystem for this process!");
@@ -3688,7 +3694,7 @@ int posix_fstatat(int dirfd, const char *pathname, struct stat *buf, int flags)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -3890,7 +3896,7 @@ static int do_statfs(File *file, struct statfs *buf)
         F_NOTICE(" -> file '" << file->getName() << "' is on devfs");
 
         // Special handling for devfs
-        if (file->getName() == "pts")
+        if (file->getName().compare("pts"))
         {
             F_NOTICE(" -> filling statfs struct with /dev/pts data");
             ByteSet(buf, 0, sizeof(*buf));
@@ -3960,7 +3966,7 @@ int posix_fstatfs(int fd, struct statfs *buf)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -4028,7 +4034,7 @@ int posix_mount(
     Directory *targetDir = Directory::fromFile(targetFile);
 
     // Check for special filesystems.
-    if (fstype == "proc")
+    if (fstype.compare("proc"))
     {
         F_NOTICE(" -> adding another procfs mount");
 
@@ -4050,7 +4056,7 @@ int posix_mount(
         targetDir->setReparsePoint(Directory::fromFile(pFs->getRoot()));
         return 0;
     }
-    else if (fstype == "tmpfs")
+    else if (fstype.compare("tmpfs"))
     {
         F_NOTICE(" -> creating new tmpfs");
 
@@ -4073,7 +4079,7 @@ int posix_mount(
 
 void generate_mtab(String &result)
 {
-    result = "";
+    result.clear();
 
     struct Remapping *remap = g_Remappings;
     while (remap->from != nullptr)

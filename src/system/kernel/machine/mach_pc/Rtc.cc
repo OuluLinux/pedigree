@@ -465,7 +465,7 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
         ++m_Second;
         m_Nanosecond -= Time::Multiplier::Second;
 
-#ifdef MEMORY_LOGGING_ENABLED
+#if MEMORY_LOGGING_ENABLED
         Serial *pSerial = Machine::instance().getSerial(1);
         NormalStaticString memoryLogStr;
         memoryLogStr += "Heap: ";
@@ -476,7 +476,7 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
         memoryLogStr += (g_FreePages * 4096) / 1024;
         memoryLogStr += "K\n";
 
-        pSerial->write(memoryLogStr);
+        pSerial->write_str(memoryLogStr);
 
         // Memory snapshot of current processes.
         for (size_t i = 0; i < Scheduler::instance().getNumProcesses(); ++i)
@@ -502,7 +502,7 @@ bool Rtc::irq(irq_id_t number, InterruptState &state)
             processListStr.append("K Heap=");
             processListStr.append(heapK, 10);
             processListStr.append("K\n");
-            pSerial->write(processListStr);
+            pSerial->write_str(processListStr);
         }
 #endif
 

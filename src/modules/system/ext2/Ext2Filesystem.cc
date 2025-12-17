@@ -66,7 +66,7 @@ Ext2Filesystem::Ext2Filesystem()
     : m_pSuperblock(0), m_pGroupDescriptors(0), m_pInodeTables(0),
       m_pInodeBitmaps(0), m_pBlockBitmaps(0), m_BlockSize(0), m_InodeSize(0),
       m_nGroupDescriptors(0),
-#ifdef THREADS
+#if THREADS
       m_WriteLock(false),
 #endif
       m_pRoot(0)
@@ -93,6 +93,7 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
     uintptr_t block = m_pDisk->read(1024ULL);
     if (!block || block == ~static_cast<uintptr_t>(0U))
     {
+        ERROR("Ext2: Failed to read a superblock on " << devName);
         return false;
     }
     m_pDisk->pin(1024ULL);
@@ -101,7 +102,7 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
     // Read correctly?
     if (LITTLE_TO_HOST16(m_pSuperblock->s_magic) != 0xEF53)
     {
-        ERROR("Ext2: Superblock not found on device " << devName);
+        ERROR("Ext2: Superblock was not found on device " << devName);
         m_pDisk->unpin(1024ULL);
         return false;
     }
@@ -175,8 +176,11 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
     // Calculate the block size.
     m_BlockSize = 1024 << LITTLE_TO_HOST32(m_pSuperblock->s_log_block_size);
 
-    // More than 4096 bytes per block and we're a little screwed atm.
-    assert(m_BlockSize <= 4096);
+    if (m_BlockSize > 4096)
+    {
+        ERROR("Ext2: filesystem's block size is too large (must be 4096 or less, but is " << m_BlockSize << ")");
+        return false;
+    }
 
     // Where is the group descriptor table?
     uint32_t gdBlock = LITTLE_TO_HOST32(m_pSuperblock->s_first_data_block) + 1;
@@ -207,8 +211,18 @@ bool Ext2Filesystem::initialise(Disk *pDisk)
 
     /// \todo Set g_pSparseBlock as read-only.
 
-    // load root directory
+    // load root directory and sanity check it
     Inode *inode = getInode(EXT2_ROOT_INO);
+    if (!inode)
+    {
+        ERROR("failed to retrieve root directory inode (corrupted inode table?");
+        return false;
+    }
+    if ((LITTLE_TO_HOST16(inode->i_mode) & 0xF000) != EXT2_S_IFDIR)
+    {
+        ERROR("root directory is not a directory");
+        return false;
+    }
     m_pRoot = new Ext2Directory(String(""), EXT2_ROOT_INO, inode, this, 0);
 
     // cache volume label
@@ -249,7 +263,7 @@ File *Ext2Filesystem::getRoot() const
     return m_pRoot;
 }
 
-String Ext2Filesystem::getVolumeLabel() const
+const String &Ext2Filesystem::getVolumeLabel() const
 {
     return m_VolumeLabel;
 }
@@ -268,8 +282,8 @@ bool Ext2Filesystem::createNode(
     }
 
     // The filename cannot be the special entries "." or "..".
-    if (filename.length() == 0 || !StringCompare(filename, ".") ||
-        !StringCompare(filename, ".."))
+    if (filename.length() == 0 || !StringCompare(filename.cstr(), ".") ||
+        !StringCompare(filename.cstr(), ".."))
     {
         SYSCALL_ERROR(InvalidArgument);
         return false;
@@ -323,7 +337,9 @@ bool Ext2Filesystem::createNode(
     if (value.length() && value.length() < 4 * 15)
     {
         MemoryCopy(
-            reinterpret_cast<void *>(newInode->i_block), value, value.length());
+            reinterpret_cast<void *>(newInode->i_block),
+            value.cstr(),
+            value.length());
         newInode->i_size = HOST_TO_LITTLE32(value.length());
     }
     // Else case comes later, after pFile is created.
@@ -385,8 +401,7 @@ bool Ext2Filesystem::createNode(
     // Else case from earlier.
     if (value.length() && value.length() >= 4 * 15)
     {
-        const char *pStr = value;
-        pFile->write(0ULL, value.length(), reinterpret_cast<uintptr_t>(pStr));
+        pFile->write(0ULL, value.length(), reinterpret_cast<uintptr_t>(value.cstr()));
     }
 
     // Add to the parent directory.
@@ -394,6 +409,7 @@ bool Ext2Filesystem::createNode(
     {
         ERROR("EXT2: Internal error adding directory entry.");
         SYSCALL_ERROR(IoError);
+        delete pFile;
         return false;
     }
 
@@ -533,7 +549,7 @@ bool Ext2Filesystem::remove(File *parent, File *file)
     bool result = pE2Parent->removeEntry(filename, pNode);
 
     // Update the group descriptor directory count to reflect the deletion.
-    if (result && file->isDirectory() && (filename != "." && filename != ".."))
+    if (result && file->isDirectory() && !(filename.compare(".") || filename.compare("..")))
     {
         uint32_t inode_num = pNode->getInodeNumber();
 
@@ -978,7 +994,10 @@ Inode *Ext2Filesystem::getInode(uint32_t inode)
     uint32_t group = inode / inodesPerGroup;
     uint32_t index = inode % inodesPerGroup;
 
-    ensureInodeTableLoaded(group);
+    if (!ensureInodeTableLoaded(group))
+    {
+        return nullptr;
+    }
     Vector<size_t> &list = m_pInodeTables[group];
 
     size_t blockNum = (index * m_InodeSize) / m_BlockSize;
@@ -1034,14 +1053,14 @@ bool Ext2Filesystem::checkReadOnlyFeature(size_t feature)
     return m_pSuperblock->s_feature_ro_compat & feature;
 }
 
-void Ext2Filesystem::ensureFreeBlockBitmapLoaded(size_t group)
+bool Ext2Filesystem::ensureFreeBlockBitmapLoaded(size_t group)
 {
     assert(group < m_nGroupDescriptors);
     Vector<size_t> &list = m_pBlockBitmaps[group];
 
     if (list.size() > 0)
         // Descriptors already loaded.
-        return;
+        return true;
 
     // Determine how many blocks to load to bring in the full block bitmap.
     // The bitmap works so that 8 blocks fit into one byte.
@@ -1055,18 +1074,26 @@ void Ext2Filesystem::ensureFreeBlockBitmapLoaded(size_t group)
     {
         uint32_t blockNumber =
             LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_block_bitmap) + i;
-        list.pushBack(readBlock(blockNumber));
+        uintptr_t buffer = readBlock(blockNumber);
+        if (!buffer)
+        {
+            // bad read - inode table isn't sane
+            return false;
+        }
+        list.pushBack(buffer);
     }
+
+    return true;
 }
 
-void Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group)
+bool Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group)
 {
     assert(group < m_nGroupDescriptors);
     Vector<size_t> &list = m_pInodeBitmaps[group];
 
     if (list.size() > 0)
         // Descriptors already loaded.
-        return;
+        return true;
 
     // Determine how many blocks to load to bring in the full inode bitmap.
     // The bitmap works so that 8 inodes fit into one byte.
@@ -1080,18 +1107,28 @@ void Ext2Filesystem::ensureFreeInodeBitmapLoaded(size_t group)
     {
         uint32_t blockNumber =
             LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_bitmap) + i;
-        list.pushBack(readBlock(blockNumber));
+        uintptr_t buffer = readBlock(blockNumber);
+        if (!buffer)
+        {
+            // bad read - inode table isn't sane
+            return false;
+        }
+        list.pushBack(buffer);
     }
+
+    return true;
 }
 
-void Ext2Filesystem::ensureInodeTableLoaded(size_t group)
+bool Ext2Filesystem::ensureInodeTableLoaded(size_t group)
 {
     assert(group < m_nGroupDescriptors);
     Vector<size_t> &list = m_pInodeTables[group];
 
     if (list.size() > 0)
+    {
         // Descriptors already loaded.
-        return;
+        return true;
+    }
 
     // Determine how many blocks to load to bring in the full inode table.
     uint32_t inodesPerGroup =
@@ -1100,16 +1137,29 @@ void Ext2Filesystem::ensureInodeTableLoaded(size_t group)
     if ((inodesPerGroup * m_InodeSize) / m_BlockSize)
         nBlocks++;
 
+    if (!nBlocks)
+    {
+        ERROR("inode table has zero blocks [inode size=" << m_InodeSize << "], possibly corrupted filesystem.");
+        return false;
+    }
+
     // Load each block in the inode table.
     for (size_t i = 0; i < nBlocks; i++)
     {
         uint32_t blockNumber =
             LITTLE_TO_HOST32(m_pGroupDescriptors[group]->bg_inode_table) + i;
         uintptr_t buffer = readBlock(blockNumber);
-        // Avoid callbacks allowing the  wipeout of our inode.
+        if (buffer == ~0ULL)
+        {
+            // bad read - inode table isn't sane
+            return false;
+        }
+        // Avoid callbacks allowing the wipeout of our inode.
         pinBlock(blockNumber);
         list.pushBack(buffer);
     }
+
+    return true;
 }
 
 void Ext2Filesystem::increaseInodeRefcount(uint32_t inode)

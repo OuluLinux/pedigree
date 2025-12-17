@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifdef THREADS
+#if THREADS
 
 #include "pedigree/kernel/process/Thread.h"
 #include "pedigree/kernel/LockGuard.h"
@@ -224,8 +224,11 @@ Thread::~Thread()
     // Remove us from the scheduler.
     Scheduler::instance().removeThread(this);
 
-    // Make sure the floating-point fault handler doesn't care about us anymore
-    NMFaultHandler::instance().threadTerminated(this);
+    EMIT_IF(X86_COMMON)
+    {
+        // Make sure the floating-point fault handler doesn't care about us anymore
+        NMFaultHandler::instance().threadTerminated(this);
+    }
 
     if (m_pParent)
         m_pParent->removeThread(this);
@@ -434,6 +437,7 @@ SchedulerState &Thread::pushState()
     // NOTICE("New state level: " << m_nStateLevel << "...");
     m_StateLevels[m_nStateLevel].m_InhibitMask =
         m_StateLevels[m_nStateLevel - 1].m_InhibitMask;
+
     allocateStackAtLevel(m_nStateLevel);
 
     setKernelStack();
@@ -500,6 +504,24 @@ void *Thread::getKernelStack()
     }
     else
     {
+        return 0;
+    }
+}
+
+void *Thread::getKernelStackBase(size_t *size) const
+{
+    if (m_nStateLevel >= MAX_NESTED_EVENTS)
+        FATAL("m_nStateLevel > MAX_NESTED_EVENTS: " << m_nStateLevel << "...");
+    if (m_StateLevels[m_nStateLevel].m_pKernelStack != 0)
+    {
+        auto stack = m_StateLevels[m_nStateLevel].m_pKernelStack;
+        *size = stack->getSize();
+        return stack->getBase();
+    }
+    else
+    {
+        ERROR("No kernel stack at this level!");
+        *size = 0;
         return 0;
     }
 }
@@ -793,13 +815,13 @@ uintptr_t Thread::getTlsBase()
         // actually mapped into the address space.
         m_pTlsBase = reinterpret_cast<void *>(base);
         uint32_t *tlsBase = reinterpret_cast<uint32_t *>(m_pTlsBase);
-#ifdef BITS_64
+#if BITS_64
         *tlsBase = static_cast<uint32_t>(m_Id);
 #else
         *tlsBase = m_Id;
 #endif
 
-#ifdef VERBOSE_KERNEL
+#if VERBOSE_KERNEL
         NOTICE(
             "Thread [" << Dec << m_pParent->getId() << ":" << m_Id << Hex
                        << "]: allocated TLS area at " << m_pTlsBase << ".");

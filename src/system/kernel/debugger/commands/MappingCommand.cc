@@ -81,7 +81,8 @@ bool MappingCommand::execute(
 
     if (thisVa.isMapped(vAddr))
     {
-        size_t flags, phys;
+        size_t flags;
+        physical_uintptr_t phys;
         thisVa.getMapping(vAddr, phys, flags);
         output += "    Mapped to ";
         output.append(phys, 16);
@@ -92,13 +93,14 @@ bool MappingCommand::execute(
     else
         output += "    Not mapped in this address space.\n";
 
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
+#if KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
     Processor::switchAddressSpace(kernelVa);
 #endif
 
     if (kernelVa.isMapped(vAddr))
     {
-        size_t flags, phys;
+        size_t flags;
+        physical_uintptr_t phys;
         kernelVa.getMapping(vAddr, phys, flags);
         output += "    Mapped to ";
         output.append(phys, 16);
@@ -109,7 +111,7 @@ bool MappingCommand::execute(
     else
         output += "    Not mapped in the kernel address space.\n";
 
-#ifdef KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
+#if KERNEL_NEEDS_ADDRESS_SPACE_SWITCH
     Processor::switchAddressSpace(thisVa);
 #endif
 

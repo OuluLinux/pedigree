@@ -52,7 +52,7 @@ class Ext2Filesystem : public Filesystem
     virtual bool initialise(Disk *pDisk);
     static Filesystem *probe(Disk *pDisk);
     virtual File *getRoot() const;
-    virtual String getVolumeLabel() const;
+    virtual const String &getVolumeLabel() const;
 
   protected:
     virtual bool
@@ -97,9 +97,9 @@ class Ext2Filesystem : public Filesystem
     Inode *getInode(uint32_t num);
     void writeInode(uint32_t num);
 
-    void ensureFreeBlockBitmapLoaded(size_t group);
-    void ensureFreeInodeBitmapLoaded(size_t group);
-    void ensureInodeTableLoaded(size_t group);
+    bool ensureFreeBlockBitmapLoaded(size_t group);
+    bool ensureFreeInodeBitmapLoaded(size_t group);
+    bool ensureInodeTableLoaded(size_t group);
 
     bool checkOptionalFeature(size_t feature);
     bool checkRequiredFeature(size_t feature);
@@ -131,7 +131,7 @@ class Ext2Filesystem : public Filesystem
     /** Number of group descriptors. */
     size_t m_nGroupDescriptors;
 
-#ifdef THREADS
+#if THREADS
     /** Write lock - we're finding some inodes and updating the superblock and
      * block group structures. */
     Mutex m_WriteLock;

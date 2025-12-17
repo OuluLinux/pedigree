@@ -102,11 +102,11 @@ static int clientThread(void *p)
                           httpRequest.startswith("HEAD")))
                     {
                         // We really don't want to deal with this.
-                        httpResponse =
+                        httpResponse.assign(
                             "HTTP/1.1 400 Bad Request\r\nAllow: GET, "
                             "HEAD\r\nContent-Type: text/plain; "
                             "charset=utf-8\r\n\r\nThe Pedigree built-in status "
-                            "server only accepts GET and HEAD requests.";
+                            "server only accepts GET and HEAD requests.");
                         stillOk = false;
                     }
                 }
@@ -307,7 +307,7 @@ static int clientThread(void *p)
                     diskInfo += temp;
                 }
                 else
-                    diskInfo = "(no disk)";
+                    diskInfo.assign("(no disk)", 10);
 
                 responseContent += "<tr><td>";
                 responseContent += mount;
@@ -319,7 +319,7 @@ static int clientThread(void *p)
 
         responseContent += "</table>";
 
-#ifdef X86_COMMON
+#if X86_COMMON
         responseContent += "<h3>Memory Usage (KiB)</h3>";
         responseContent += "<table "
                            "border='1'><tr><th>Heap</th><th>Used</th><th>Free</"
@@ -381,7 +381,7 @@ static int clientThread(void *p)
     String contentLength;
     contentLength.Format("\r\nContent-Length: %d", responseContent.length());
 
-    httpResponse = statusLine;
+    httpResponse.assign(statusLine, statusLine.length());
     httpResponse += contentLength;
     httpResponse += "\r\nContent-type: text/html; charset=utf-8";
     httpResponse += "\r\nConnection: close";
@@ -413,6 +413,10 @@ static int mainThread(void *)
 {
     struct netconn *server = netconn_new(NETCONN_TCP);
 
+    // Don't block for more than ~500 ms so we can shut down the server when
+    // this module is unloaded.
+    netconn_set_recvtimeout(server, 500);
+
     ip_addr_t ipaddr;
     ByteSet(&ipaddr, 0, sizeof(ipaddr));
 
@@ -423,7 +427,6 @@ static int mainThread(void *)
     g_Running = true;
     while (g_Running)
     {
-        /// \todo need to abort accept() somehow to cancel this thread
         struct netconn *connection;
         if (netconn_accept(server, &connection) == ERR_OK)
         {
@@ -445,6 +448,7 @@ static bool init()
     g_pServerThread = new Thread(
         Processor::information().getCurrentThread()->getParent(), mainThread,
         nullptr);
+    g_pServerThread->setName("Status Server main thread");
     return true;
 }
 
@@ -458,5 +462,5 @@ static void destroy()
     }
 }
 
-MODULE_INFO("Status Server", &init, &destroy, "config", "lwip");
+MODULE_INFO("Status Server", &init, &destroy, "config", "lwip", "network-stack");
 MODULE_OPTIONAL_DEPENDS("confignics");

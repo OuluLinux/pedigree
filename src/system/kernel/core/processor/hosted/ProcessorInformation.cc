@@ -21,7 +21,8 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/types.h"
-#include <processor/hosted/VirtualAddressSpace.h>
+#include "pedigree/kernel/process/PerProcessorScheduler.h"
+#include "VirtualAddressSpace.h"
 
 namespace __pedigree_hosted
 {
@@ -37,17 +38,13 @@ HostedProcessorInformation::HostedProcessorInformation(
     ProcessorId processorId, uint8_t apicId)
     : m_ProcessorId(processorId),
       m_VirtualAddressSpace(&VirtualAddressSpace::getKernelAddressSpace()),
-#ifdef THREADS
       m_pCurrentThread(0), m_Scheduler(0),
-#endif
       m_KernelStack(0)
 {
-    m_Scheduler = new PerProcessorScheduler();
 }
 
 HostedProcessorInformation::~HostedProcessorInformation()
 {
-    delete m_Scheduler;
 }
 
 VirtualAddressSpace &HostedProcessorInformation::getVirtualAddressSpace() const
@@ -64,7 +61,6 @@ void HostedProcessorInformation::setVirtualAddressSpace(
     m_VirtualAddressSpace = &virtualAddressSpace;
 }
 
-#ifdef THREADS
 Thread *HostedProcessorInformation::getCurrentThread() const
 {
     return m_pCurrentThread;
@@ -77,9 +73,12 @@ void HostedProcessorInformation::setCurrentThread(Thread *pThread)
 
 PerProcessorScheduler &HostedProcessorInformation::getScheduler()
 {
+    if (m_Scheduler == nullptr)
+    {
+        m_Scheduler = new PerProcessorScheduler();
+    }
     return *m_Scheduler;
 }
-#endif
 
 /**
  * So, the sigaltstack implementation implements EPERM for sigaltstack by

@@ -19,6 +19,7 @@
 
 #include "UnixFilesystem.h"
 #include "modules/subsys/posix/logging.h"
+#include "modules/system/vfs/VFS.h"
 #include "pedigree/kernel/LockGuard.h"
 #include "pedigree/kernel/process/Mutex.h"
 #include "pedigree/kernel/process/Process.h"
@@ -28,12 +29,12 @@
 String UnixFilesystem::m_VolumeLabel("unix");
 
 UnixSocket::UnixSocket(
-    String name, Filesystem *pFs, File *pParent, UnixSocket *other,
+    const String &name, Filesystem *pFs, File *pParent, UnixSocket *other,
     SocketType type)
     : File(name, 0, 0, 0, 0, pFs, 0, pParent), m_Type(type), m_State(Inactive),
       m_Datagrams(MAX_UNIX_DGRAM_BACKLOG), m_pOther(other),
       m_Stream(MAX_UNIX_STREAM_QUEUE), m_PendingSockets(), m_Mutex(false)
-#ifdef THREADS
+#if THREADS
       ,
       m_AckWaiter(0)
 #endif
@@ -73,6 +74,7 @@ UnixSocket::~UnixSocket()
     {
         Directory *parent = Directory::fromFile(getParent());
         parent->remove(getName());
+
     }
 }
 
@@ -158,13 +160,19 @@ uint64_t UnixSocket::recvfrom(
         return 0;
     }
 
-    struct buf *b = m_Datagrams.read();
+    DatagramBuffer::ReadResult result = m_Datagrams.read();
+    if (result.hasError())
+    {
+        // TODO: set an error
+        return 0;
+    }
+    struct buf *b = result.value();
     if (size > b->len)
         size = b->len;
     MemoryCopy(reinterpret_cast<void *>(buffer), b->pBuffer, size);
     if (b->remotePath)
     {
-        from = b->remotePath;
+        from.assign(b->remotePath, b->remotePathLen);
         delete[] b->remotePath;
     }
     delete[] b->pBuffer;
@@ -211,6 +219,7 @@ uint64_t UnixSocket::writeBytewise(
     {
         b->remotePath = new char[255];
         StringCopyN(b->remotePath, reinterpret_cast<char *>(location), 255);
+        b->remotePathLen = StringLength(b->remotePath);
     }
     m_Datagrams.write(b);
 
@@ -261,7 +270,7 @@ bool UnixSocket::bind(UnixSocket *other, bool block)
         return true;
     }
 
-#ifdef THREADS
+#if THREADS
     N_NOTICE("bind is waiting for an ack");
     m_AckWaiter.acquire();
 
@@ -293,7 +302,7 @@ void UnixSocket::unbind()
     m_State = Closed;
     m_pOther->m_State = Closed;
 
-#ifdef THREADS
+#if THREADS
     m_AckWaiter.release();
     m_pOther->m_AckWaiter.release();
 #endif
@@ -332,7 +341,7 @@ void UnixSocket::acknowledgeBind()
 
     setCreds();
 
-#ifdef THREADS
+#if THREADS
     m_AckWaiter.release();
     m_pOther->m_AckWaiter.release();
 #endif
@@ -439,7 +448,7 @@ bool UnixSocket::markListening()
 
 void UnixSocket::setCreds()
 {
-#ifdef THREADS
+#if THREADS
     Process *pCurrentProcess =
         Processor::information().getCurrentThread()->getParent();
     m_Creds.uid = pCurrentProcess->getUserId();
@@ -448,7 +457,7 @@ void UnixSocket::setCreds()
 #endif
 }
 
-UnixDirectory::UnixDirectory(String name, Filesystem *pFs, File *pParent)
+UnixDirectory::UnixDirectory(const String &name, Filesystem *pFs, File *pParent)
     : Directory(name, 0, 0, 0, 0, pFs, 0, pParent), m_Lock(false)
 {
     cacheDirectoryContents();
@@ -458,7 +467,7 @@ UnixDirectory::~UnixDirectory()
 {
 }
 
-bool UnixDirectory::addEntry(String filename, File *pFile)
+bool UnixDirectory::addEntry(const String &filename, File *pFile)
 {
     LockGuard<Mutex> guard(m_Lock);
     addDirectoryEntry(filename, pFile);
@@ -467,10 +476,8 @@ bool UnixDirectory::addEntry(String filename, File *pFile)
 
 bool UnixDirectory::removeEntry(File *pFile)
 {
-    String filename = pFile->getName();
-
     LockGuard<Mutex> guard(m_Lock);
-    remove(filename.view());
+    remove(pFile->getName().view());
     return true;
 }
 
@@ -486,6 +493,7 @@ UnixFilesystem::UnixFilesystem() : Filesystem(), m_pRoot(0)
     pRoot->addEntry(String(".."), pRoot);
 
     m_pRoot = pRoot;
+    VFS::instance().trackFile(m_pRoot);
 
     // allow owner/group rwx but others only r-x on the filesystem root
     m_pRoot->setPermissions(
@@ -495,7 +503,11 @@ UnixFilesystem::UnixFilesystem() : Filesystem(), m_pRoot(0)
 
 UnixFilesystem::~UnixFilesystem()
 {
-    delete m_pRoot;
+    Directory::fromFile(m_pRoot)->emptyCache();
+    if (!VFS::instance().untrackFile(m_pRoot))
+    {
+        ERROR("UnixFilesystem::~UnixFilesystem: root didn't get destroyed");
+    }
 }
 
 bool UnixFilesystem::createFile(

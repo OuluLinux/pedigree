@@ -17,14 +17,13 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifdef THREADS
-
 #include "pedigree/kernel/process/PerProcessorScheduler.h"
 #include "pedigree/kernel/Atomic.h"
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/Subsystem.h"
 #include "pedigree/kernel/machine/Machine.h"
+#include "pedigree/kernel/machine/Trace.h"
 #include "pedigree/kernel/machine/SchedulerTimer.h"
 #include "pedigree/kernel/panic.h"
 #include "pedigree/kernel/process/Event.h"
@@ -38,15 +37,14 @@
 #include "pedigree/kernel/processor/VirtualAddressSpace.h"
 #include "pedigree/kernel/processor/state.h"
 #include "pedigree/kernel/utilities/utility.h"
-
-#ifdef TRACK_LOCKS
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
-#endif
+
+#define VERBOSE_SCHEDULER 0
 
 PerProcessorScheduler::PerProcessorScheduler()
     : m_pSchedulingAlgorithm(0), m_NewThreadDataLock(false),
       m_NewThreadDataCondition(), m_NewThreadData(), m_pIdleThread(0)
-#ifdef ARM_BEAGLE
+#if ARM_BEAGLE
       ,
       m_TickCount(0)
 #endif
@@ -55,6 +53,12 @@ PerProcessorScheduler::PerProcessorScheduler()
 
 PerProcessorScheduler::~PerProcessorScheduler()
 {
+    SchedulerTimer *pTimer = Machine::instance().getSchedulerTimer();
+    if (!pTimer)
+    {
+        panic("No scheduler timer present.");
+    }
+    Machine::instance().getSchedulerTimer()->removeHandler(this);
 }
 
 struct newThreadData
@@ -146,6 +150,7 @@ void PerProcessorScheduler::initialise(Thread *pThread)
     Thread *pAddThread = new Thread(
         pThread->getParent(), processorAddThread,
         reinterpret_cast<void *>(this), 0, false, true);
+    pAddThread->setName("PerProcessorScheduler thread add worker");
     pAddThread->detach();
 }
 
@@ -172,42 +177,24 @@ void PerProcessorScheduler::schedule(
         pNextThread = m_pSchedulingAlgorithm->getNext(pCurrentThread);
         if (pNextThread == 0)
         {
-            bool needsIdle = false;
-
-            // If we're supposed to be sleeping, this isn't a good place to be
-            if (nextStatus != Thread::Ready)
+            // No other thread in the scheduler - take a round trip through the
+            // idle thread before we schedule back to the yielding thread.
+            // In most cases a thread is yielding either because it needs to
+            // sleep to wait for something or because it has no work currently,
+            // so simply switching back to it makes no sense (and causes us to
+            // spin tightly rather than halting for an interrupt or other event)
+            if (m_pIdleThread == 0)
             {
-                needsIdle = true;
+                // Ok, in this case we have no new thread to switch to and no
+                // idle thread yet, so we must return to the caller and accept
+                // the spinning here.
+                pCurrentThread->getLock().release();
+                Processor::setInterrupts(bWasInterrupts);
+                return;
             }
             else
             {
-                if (pCurrentThread->getScheduler() == this)
-                {
-                    // Nothing to switch to, but we aren't sleeping. Just
-                    // return.
-                    pCurrentThread->getLock().release();
-                    Processor::setInterrupts(bWasInterrupts);
-                    return;
-                }
-                else
-                {
-                    // Current thread is switching cores, and no other thread
-                    // was available. So we have to go idle.
-                    needsIdle = true;
-                }
-            }
-
-            if (needsIdle)
-            {
-                if (m_pIdleThread == 0)
-                {
-                    FATAL("No idle thread available, and the current thread is "
-                          "leaving the ready state!");
-                }
-                else
-                {
-                    pNextThread = m_pIdleThread;
-                }
+                pNextThread = m_pIdleThread;
             }
         }
     }
@@ -217,10 +204,16 @@ void PerProcessorScheduler::schedule(
     }
 
     if (pNextThread == pNewThread)
+    {
         WARNING("scheduler: next thread IS new thread");
+    }
 
     if (pNextThread != pCurrentThread)
         pNextThread->getLock().acquire();
+
+#if VERBOSE_SCHEDULER
+    NOTICE_NOLOCK("schedule: " << pCurrentThread << " -> " << pNextThread << " -- " << pCurrentThread->getName() << " -> " << pNextThread->getName());
+#endif
 
     // Now neither thread can be moved, we're safe to switch.
     if (pCurrentThread != m_pIdleThread)
@@ -249,11 +242,12 @@ void PerProcessorScheduler::schedule(
 
     pNextThread->getLock().release();
 
-// We'll release the current thread's lock when we reschedule, so for now
-// we just lie to the lock checker.
-#ifdef TRACK_LOCKS
-    g_LocksCommand.lockReleased(&pCurrentThread->getLock());
-#endif
+    // We'll release the current thread's lock when we reschedule, so for now
+    // we just lie to the lock checker.
+    EMIT_IF(TRACK_LOCKS)
+    {
+        g_LocksCommand.lockReleased(&pCurrentThread->getLock());
+    }
 
     if (pLock)
     {
@@ -268,43 +262,47 @@ void PerProcessorScheduler::schedule(
         pLock->exit();
     }
 
-#ifdef TRACK_LOCKS
-    if (!g_LocksCommand.checkSchedule())
+    EMIT_IF(TRACK_LOCKS)
     {
-        FATAL("Lock checker disallowed this reschedule.");
+        if (!g_LocksCommand.checkSchedule())
+        {
+            FATAL("Lock checker disallowed this reschedule.");
+        }
     }
-#endif
 
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-    pCurrentThread->getLock().unwind();
-    Processor::switchState(
-        bWasInterrupts, pCurrentThread->state(), pNextThread->state(),
-        &pCurrentThread->getLock().m_Atom.m_Atom);
-    Processor::setInterrupts(bWasInterrupts);
-    checkEventState(0);
-#else
-    // NOTICE_NOLOCK("calling saveState [schedule]");
-    if (Processor::saveState(pCurrentThread->state()))
+    EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
-        // Just context-restored, return.
-
-        // Return to previous interrupt state.
+        pCurrentThread->getLock().unwind();
+        Processor::switchState(
+            bWasInterrupts, pCurrentThread->state(), pNextThread->state(),
+            &pCurrentThread->getLock().m_Atom.m_Atom);
         Processor::setInterrupts(bWasInterrupts);
-
-        // Check the event state - we don't have a user mode stack available
-        // to us, so pass zero and don't execute user-mode event handlers.
         checkEventState(0);
-
-        return;
     }
+    else
+    {
+        // NOTICE_NOLOCK("calling saveState [schedule]");
+        if (Processor::saveState(pCurrentThread->state()))
+        {
+            // Just context-restored, return.
 
-    // Restore context, releasing the old thread's lock when we've switched
-    // stacks.
-    pCurrentThread->getLock().unwind();
-    Processor::restoreState(
-        pNextThread->state(), &pCurrentThread->getLock().m_Atom.m_Atom);
-// Not reached.
-#endif
+            // Return to previous interrupt state.
+            Processor::setInterrupts(bWasInterrupts);
+
+            // Check the event state - we don't have a user mode stack available
+            // to us, so pass zero and don't execute user-mode event handlers.
+            checkEventState(0);
+
+            return;
+        }
+
+        // Restore context, releasing the old thread's lock when we've switched
+        // stacks.
+        pCurrentThread->getLock().unwind();
+        Processor::restoreState(
+            pNextThread->state(), &pCurrentThread->getLock().m_Atom.m_Atom);
+        // Not reached.
+    }
 }
 
 void PerProcessorScheduler::checkEventState(uintptr_t userStack)
@@ -347,63 +345,73 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
     // Simple heuristic for whether to launch the event handler in kernel or
     // user mode - is the handler address mapped kernel or user mode?
     VirtualAddressSpace &va = Processor::information().getVirtualAddressSpace();
-    if (!va.isMapped(reinterpret_cast<void *>(handlerAddress)))
+    EMIT_IF(!HOSTED)
     {
-        ERROR_NOLOCK(
-            "checkEventState: Handler address " << handlerAddress
-                                                << " not mapped!");
-        if (pEvent->isDeletable())
-            delete pEvent;
-        Processor::setInterrupts(bWasInterrupts);
-        return;
+        if (!va.isMapped(reinterpret_cast<void *>(handlerAddress)))
+        {
+            ERROR_NOLOCK(
+                "checkEventState: Handler address " << Hex << handlerAddress
+                                                    << " not mapped!");
+            if (pEvent->isDeletable())
+                delete pEvent;
+            Processor::setInterrupts(bWasInterrupts);
+            return;
+        }
     }
 
     SchedulerState &oldState = pThread->pushState();
 
     physical_uintptr_t page;
     size_t flags;
-    va.getMapping(reinterpret_cast<void *>(handlerAddress), page, flags);
-    if (!(flags & VirtualAddressSpace::KernelMode))
+    EMIT_IF(HOSTED)
     {
-        if (userStack != 0)
-            va.getMapping(
-                reinterpret_cast<void *>(userStack - pageSz), page, flags);
-        if (userStack == 0 || (flags & VirtualAddressSpace::KernelMode))
+        flags = VirtualAddressSpace::KernelMode;
+    }
+    else
+    {
+        va.getMapping(reinterpret_cast<void *>(handlerAddress), page, flags);
+        if (!(flags & VirtualAddressSpace::KernelMode))
         {
-            VirtualAddressSpace::Stack *stateStack =
-                pThread->getStateUserStack();
-            if (!stateStack)
+            if (userStack != 0)
+                va.getMapping(
+                    reinterpret_cast<void *>(userStack - pageSz), page, flags);
+            if (userStack == 0 || (flags & VirtualAddressSpace::KernelMode))
             {
-                stateStack = va.allocateStack();
-                pThread->setStateUserStack(stateStack);
-            }
-            else
-            {
-                // Verify that the stack is mapped
-                if (!va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz)))
+                VirtualAddressSpace::Stack *stateStack =
+                    pThread->getStateUserStack();
+                if (!stateStack)
                 {
-                    /// \todo This is a quickfix for a bigger problem. I imagine
-                    ///       it has something to do with calling execve
-                    ///       directly without fork, meaning the memory is
-                    ///       cleaned up but the state level stack information
-                    ///       is *not*.
                     stateStack = va.allocateStack();
                     pThread->setStateUserStack(stateStack);
                 }
-            }
+                else
+                {
+                    // Verify that the stack is mapped
+                    if (!va.isMapped(adjust_pointer(stateStack->getTop(), -pageSz)))
+                    {
+                        /// \todo This is a quickfix for a bigger problem. I imagine
+                        ///       it has something to do with calling execve
+                        ///       directly without fork, meaning the memory is
+                        ///       cleaned up but the state level stack information
+                        ///       is *not*.
+                        stateStack = va.allocateStack();
+                        pThread->setStateUserStack(stateStack);
+                    }
+                }
 
-            userStack = reinterpret_cast<uintptr_t>(stateStack->getTop());
-        }
-        else
-        {
-            va.getMapping(reinterpret_cast<void *>(userStack), page, flags);
-            if (flags & VirtualAddressSpace::KernelMode)
+                userStack = reinterpret_cast<uintptr_t>(stateStack->getTop());
+            }
+            else
             {
-                NOTICE_NOLOCK(
-                    "User stack for event in checkEventState is the kernel's!");
-                pThread->sendEvent(pEvent);
-                Processor::setInterrupts(bWasInterrupts);
-                return;
+                va.getMapping(reinterpret_cast<void *>(userStack), page, flags);
+                if (flags & VirtualAddressSpace::KernelMode)
+                {
+                    NOTICE_NOLOCK(
+                        "User stack for event in checkEventState is the kernel's!");
+                    pThread->sendEvent(pEvent);
+                    Processor::setInterrupts(bWasInterrupts);
+                    return;
+                }
             }
         }
     }
@@ -428,14 +436,15 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
 
     pEvent->serialize(reinterpret_cast<uint8_t *>(addr));
 
-#ifndef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-    if (Processor::saveState(oldState))
+    EMIT_IF(!SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
-        // Just context-restored.
-        Processor::setInterrupts(bWasInterrupts);
-        return;
+        if (Processor::saveState(oldState))
+        {
+            // Just context-restored.
+            Processor::setInterrupts(bWasInterrupts);
+            return;
+        }
     }
-#endif
 
     if (pEvent->isDeletable())
         delete pEvent;
@@ -453,15 +462,18 @@ void PerProcessorScheduler::checkEventState(uintptr_t userStack)
     {
         pThread->getParent()->trackTime(false);
         pThread->getParent()->recordTime(true);
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-        Processor::saveAndJumpUser(
-            bWasInterrupts, oldState, 0, Event::getTrampoline(), userStack,
-            handlerAddress, addr);
-#else
-        Processor::jumpUser(
-            0, Event::getTrampoline(), userStack, handlerAddress, addr);
-// Not reached.
-#endif
+        EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
+        {
+            Processor::saveAndJumpUser(
+                bWasInterrupts, oldState, 0, Event::getTrampoline(), userStack,
+                handlerAddress, addr);
+        }
+        else
+        {
+            Processor::jumpUser(
+                0, Event::getTrampoline(), userStack, handlerAddress, addr);
+            // Not reached.
+        }
     }
 }
 
@@ -484,6 +496,7 @@ void PerProcessorScheduler::addThread(
     if (this != &Processor::information().getScheduler() ||
         pThread->getStatus() == Thread::Sleeping)
     {
+        NOTICE("wrong cpu => this=" << this << " sched=" << &Processor::information().getScheduler());
         newThreadData *pData = new newThreadData;
         pData->pThread = pThread;
         pData->pStartFunction = pStartFunction;
@@ -538,70 +551,74 @@ void PerProcessorScheduler::addThread(
     bool bWas = pThread->getLock().acquired();
     pThread->getLock().unwind();
     pThread->getLock().m_Atom.m_Atom = 1;
-#ifdef TRACK_LOCKS
-    // Satisfy the lock checker; we're releasing these out of order, so make
-    // sure the checker sees them unlocked in order.
-    g_LocksCommand.lockReleased(&pCurrentThread->getLock());
-    if (bWas)
+    EMIT_IF(TRACK_LOCKS)
     {
-        // Lock was in fact locked before.
-        g_LocksCommand.lockReleased(&pThread->getLock());
+        // Satisfy the lock checker; we're releasing these out of order, so make
+        // sure the checker sees them unlocked in order.
+        g_LocksCommand.lockReleased(&pCurrentThread->getLock());
+        if (bWas)
+        {
+            // Lock was in fact locked before.
+            g_LocksCommand.lockReleased(&pThread->getLock());
+        }
+        if (!g_LocksCommand.checkSchedule())
+        {
+            FATAL("Lock checker disallowed this reschedule.");
+        }
     }
-    if (!g_LocksCommand.checkSchedule())
-    {
-        FATAL("Lock checker disallowed this reschedule.");
-    }
-#endif
 
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-    pCurrentThread->getLock().unwind();
-    if (bUsermode)
+    EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
-        Processor::saveAndJumpUser(
-            bWasInterrupts, pCurrentThread->state(),
-            &pCurrentThread->getLock().m_Atom.m_Atom,
-            reinterpret_cast<uintptr_t>(pStartFunction),
-            reinterpret_cast<uintptr_t>(pStack),
-            reinterpret_cast<uintptr_t>(pParam));
+        pCurrentThread->getLock().unwind();
+        if (bUsermode)
+        {
+            Processor::saveAndJumpUser(
+                bWasInterrupts, pCurrentThread->state(),
+                &pCurrentThread->getLock().m_Atom.m_Atom,
+                reinterpret_cast<uintptr_t>(pStartFunction),
+                reinterpret_cast<uintptr_t>(pStack),
+                reinterpret_cast<uintptr_t>(pParam));
+        }
+        else
+        {
+            Processor::saveAndJumpKernel(
+                bWasInterrupts, pCurrentThread->state(),
+                &pCurrentThread->getLock().m_Atom.m_Atom,
+                reinterpret_cast<uintptr_t>(pStartFunction),
+                reinterpret_cast<uintptr_t>(pStack),
+                reinterpret_cast<uintptr_t>(pParam));
+        }
     }
     else
     {
-        Processor::saveAndJumpKernel(
-            bWasInterrupts, pCurrentThread->state(),
-            &pCurrentThread->getLock().m_Atom.m_Atom,
-            reinterpret_cast<uintptr_t>(pStartFunction),
-            reinterpret_cast<uintptr_t>(pStack),
-            reinterpret_cast<uintptr_t>(pParam));
-    }
-#else   // SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-    if (Processor::saveState(pCurrentThread->state()))
-    {
-        // Just context-restored.
-        if (bWasInterrupts)
-            Processor::setInterrupts(true);
-        return;
-    }
+        if (Processor::saveState(pCurrentThread->state()))
+        {
+            // Just context-restored.
+            if (bWasInterrupts)
+                Processor::setInterrupts(true);
+            return;
+        }
 
-    pCurrentThread->getLock().unwind();
-    if (bUsermode)
-    {
-        pCurrentThread->getParent()->recordTime(true);
-        Processor::jumpUser(
-            &pCurrentThread->getLock().m_Atom.m_Atom,
-            reinterpret_cast<uintptr_t>(pStartFunction),
-            reinterpret_cast<uintptr_t>(pStack),
-            reinterpret_cast<uintptr_t>(pParam));
+        pCurrentThread->getLock().unwind();
+        if (bUsermode)
+        {
+            pCurrentThread->getParent()->recordTime(true);
+            Processor::jumpUser(
+                &pCurrentThread->getLock().m_Atom.m_Atom,
+                reinterpret_cast<uintptr_t>(pStartFunction),
+                reinterpret_cast<uintptr_t>(pStack),
+                reinterpret_cast<uintptr_t>(pParam));
+        }
+        else
+        {
+            pCurrentThread->getParent()->recordTime(false);
+            Processor::jumpKernel(
+                &pCurrentThread->getLock().m_Atom.m_Atom,
+                reinterpret_cast<uintptr_t>(pStartFunction),
+                reinterpret_cast<uintptr_t>(pStack),
+                reinterpret_cast<uintptr_t>(pParam));
+        }
     }
-    else
-    {
-        pCurrentThread->getParent()->recordTime(false);
-        Processor::jumpKernel(
-            &pCurrentThread->getLock().m_Atom.m_Atom,
-            reinterpret_cast<uintptr_t>(pStartFunction),
-            reinterpret_cast<uintptr_t>(pStack),
-            reinterpret_cast<uintptr_t>(pParam));
-    }
-#endif  // SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
 }
 
 void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
@@ -662,18 +679,19 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
     bool bWas = pThread->getLock().acquired();
     pThread->getLock().unwind();
     pThread->getLock().m_Atom.m_Atom = 1;
-#ifdef TRACK_LOCKS
-    g_LocksCommand.lockReleased(&pCurrentThread->getLock());
-    if (bWas)
+    EMIT_IF(TRACK_LOCKS)
     {
-        // We unlocked the lock, so track that unlock.
-        g_LocksCommand.lockReleased(&pThread->getLock());
+        g_LocksCommand.lockReleased(&pCurrentThread->getLock());
+        if (bWas)
+        {
+            // We unlocked the lock, so track that unlock.
+            g_LocksCommand.lockReleased(&pThread->getLock());
+        }
+        if (!g_LocksCommand.checkSchedule())
+        {
+            FATAL("Lock checker disallowed this reschedule.");
+        }
     }
-    if (!g_LocksCommand.checkSchedule())
-    {
-        FATAL("Lock checker disallowed this reschedule.");
-    }
-#endif
 
     // Copy the SyscallState into this thread's kernel stack.
     uintptr_t kStack = reinterpret_cast<uintptr_t>(pThread->getKernelStack());
@@ -688,24 +706,27 @@ void PerProcessorScheduler::addThread(Thread *pThread, SyscallState &state)
     pCurrentThread->getParent()->trackTime(false);
     pThread->getParent()->recordTime(false);
 
-#ifdef SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH
-    pCurrentThread->getLock().unwind();
-    NOTICE("restoring (new) syscall state");
-    Processor::switchState(
-        bWasInterrupts, pCurrentThread->state(), newState,
-        &pCurrentThread->getLock().m_Atom.m_Atom);
-#else
-    if (Processor::saveState(pCurrentThread->state()))
+    EMIT_IF(SYSTEM_REQUIRES_ATOMIC_CONTEXT_SWITCH)
     {
-        // Just context-restored.
-        if (bWasInterrupts)
-            Processor::setInterrupts(true);
-        return;
+        pCurrentThread->getLock().unwind();
+        NOTICE("restoring (new) syscall state");
+        Processor::switchState(
+            bWasInterrupts, pCurrentThread->state(), newState,
+            &pCurrentThread->getLock().m_Atom.m_Atom);
     }
+    else
+    {
+        if (Processor::saveState(pCurrentThread->state()))
+        {
+            // Just context-restored.
+            if (bWasInterrupts)
+                Processor::setInterrupts(true);
+            return;
+        }
 
-    pCurrentThread->getLock().unwind();
-    Processor::restoreState(newState, &pCurrentThread->getLock().m_Atom.m_Atom);
-#endif
+        pCurrentThread->getLock().unwind();
+        Processor::restoreState(newState, &pCurrentThread->getLock().m_Atom.m_Atom);
+    }
 }
 
 void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
@@ -720,23 +741,24 @@ void PerProcessorScheduler::killCurrentThread(Spinlock *pLock)
     // Removing the current thread. Grab its lock.
     pThread->getLock().acquire();
 
-// If we're tracking locks, don't pollute the results. Yes, we've kept
-// this lock held, but it no longer matters.
-#ifdef TRACK_LOCKS
-    g_LocksCommand.lockReleased(&pThread->getLock());
-    if (!g_LocksCommand.checkSchedule())
+    // If we're tracking locks, don't pollute the results. Yes, we've kept
+    // this lock held, but it no longer matters.
+    EMIT_IF(TRACK_LOCKS)
     {
-        FATAL("Lock checker disallowed this reschedule.");
-    }
-    if (pLock)
-    {
-        g_LocksCommand.lockReleased(pLock);
+        g_LocksCommand.lockReleased(&pThread->getLock());
         if (!g_LocksCommand.checkSchedule())
         {
             FATAL("Lock checker disallowed this reschedule.");
         }
+        if (pLock)
+        {
+            g_LocksCommand.lockReleased(pLock);
+            if (!g_LocksCommand.checkSchedule())
+            {
+                FATAL("Lock checker disallowed this reschedule.");
+            }
+        }
     }
-#endif
 
     // Get another thread ready to schedule.
     // This will also get the lock for the returned thread.
@@ -811,7 +833,7 @@ void PerProcessorScheduler::sleep(Spinlock *pLock)
 
 void PerProcessorScheduler::timer(uint64_t delta, InterruptState &state)
 {
-#ifdef ARM_BEAGLE  // Timer at 1 tick per ms, we want to run every 100 ms
+#if ARM_BEAGLE  // Timer at 1 tick per ms, we want to run every 100 ms
     m_TickCount++;
     if ((m_TickCount % 100) == 0)
     {
@@ -822,7 +844,7 @@ void PerProcessorScheduler::timer(uint64_t delta, InterruptState &state)
         Thread *pThread = Processor::information().getCurrentThread();
         if (pThread->getUnwindState() == Thread::Exit)
             pThread->getParent()->getSubsystem()->exit(0);
-#ifdef ARM_BEAGLE
+#if ARM_BEAGLE
     }
 #endif
 }
@@ -836,5 +858,3 @@ void PerProcessorScheduler::setIdle(Thread *pThread)
 {
     m_pIdleThread = pThread;
 }
-
-#endif

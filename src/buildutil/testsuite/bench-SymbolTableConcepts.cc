@@ -130,9 +130,15 @@ static void LoadSymbols(std::vector<String> &result)
         std::string s;
         std::getline(ifs, s);
 
-        String word(s.c_str());
-        result.push_back(word);
+        if (!s.length())
+        {
+            continue;
+        }
+
+        result.emplace_back(s.c_str(), s.length());
     }
+
+    assert(result.size());
 }
 
 template <class T>
@@ -284,7 +290,7 @@ static void BM_SymbolsLookup_KernelLocal(benchmark::State &state)
     auto it = symbols.begin();
     while (state.KeepRunning())
     {
-        auto &word = *it;
+        const String &word = *it;
         benchmark::DoNotOptimize(table.lookup(word, nullptr));
         if (++it == symbols.end())
         {

@@ -20,23 +20,17 @@
 #ifndef KERNEL_LINKER_KERNELELF_H
 #define KERNEL_LINKER_KERNELELF_H
 
+#include "modules/Module.h"
+#include "pedigree/kernel/Spinlock.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/linker/Elf.h"
+#include "pedigree/kernel/process/Semaphore.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/types.h"
 #include "pedigree/kernel/utilities/MemoryAllocator.h"
 #include "pedigree/kernel/utilities/SharedPointer.h"
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/utility.h"
-
-#ifdef THREADS
-#include "pedigree/kernel/Spinlock.h"
-#include "pedigree/kernel/process/Semaphore.h"
-#endif
-
-#ifdef STATIC_DRIVERS
-#include "modules/Module.h"
-#endif
 
 class BootstrapStruct_t;
 class String;
@@ -121,7 +115,7 @@ class Module
 
 class EXPORTED_PUBLIC KernelElf : public Elf
 {
-    friend void system_reset();
+    friend void _cxx_main(class BootstrapStruct_t &);
 
   public:
     /** Get the class instance
@@ -142,9 +136,8 @@ class EXPORTED_PUBLIC KernelElf : public Elf
      *\param silent If true will not update the boot progress(default is false).
      *\return A pointer to a Elf class describing the loaded module. */
     Module *loadModule(uint8_t *pModule, size_t len, bool silent = false);
-#ifdef STATIC_DRIVERS
+    /** Load a static driver. */
     Module *loadModule(struct ModuleInfo *info, bool silent = false);
-#endif
 
     /** Executes all modules. */
     void executeModules(bool silent = false, bool progress = true);
@@ -185,6 +178,17 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     /** Waits for all modules to complete (whether successfully or not). */
     void waitForModulesToLoad();
 
+    /**
+     * \brief Invokes the module named 'init'.
+     * When a module named init is discovered, rather than executing it in the
+     * usual module order, it is kept aside until this function is called.
+     *
+     * This ensures the init module (which is generally used to invoke the
+     * userspace and become user-interactive) is always run last, and is not
+     * impacted by modules that load after it.
+     */
+    void invokeInitModule();
+
   private:
     /** Default constructor does nothing */
     KernelElf() INITIALISATION_ONLY;
@@ -204,6 +208,20 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     template <class T>
     static T *rebase(Module *module, T *ptr)
     {
+        EMIT_IF(STATIC_DRIVERS)
+        {
+            return ptr;
+        }
+
+        uintptr_t value = reinterpret_cast<uintptr_t>(ptr);
+
+        // Don't rebase pointers that are already rebased
+        if (module->loadBase <= value &&
+            value <= (module->loadBase + module->loadSize))
+        {
+            return ptr;
+        }
+
         return adjust_pointer(ptr, module->loadBase);
     }
 
@@ -213,10 +231,9 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     /** Unlock access to module data structures. */
     void unlockModules();
 
-#if defined(X86_COMMON)
+    /** Additional section headers we have loaded for this ELF binary. */
     MemoryRegion m_AdditionalSectionContents;
     MemoryRegion *m_AdditionalSectionHeaders;
-#endif
 
     /** Instance of the KernelElf class */
     static KernelElf m_Instance;
@@ -226,8 +243,12 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     /** Memory allocator for modules - where they can be loaded. */
     MemoryAllocator m_ModuleAllocator;
 
-/** Override Elf base class members. */
-#if defined(X86_COMMON)
+    /**
+     * Override Elf base class members.
+     * x86 builds stuff a 64-bit binary into a 32-bit container so we need to
+     * use a different type.
+     */
+#if X86_COMMON
     Elf32SectionHeader_t *m_pSectionHeaders;
     Elf32Symbol_t *m_pSymbolTable;
 
@@ -241,11 +262,12 @@ class EXPORTED_PUBLIC KernelElf : public Elf
     typedef ElfSymbol_t KernelElfSymbol_t;
 #endif
 
-/** Tracks the module loading process. */
-#ifdef THREADS
+    /** Tracks the module loading process. */
     Semaphore m_ModuleProgress;
     Spinlock m_ModuleAdjustmentLock;
-#endif
+
+    /** Pending init module. */
+    Module *m_InitModule;
 };
 
 /** @} */

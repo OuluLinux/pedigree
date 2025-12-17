@@ -22,14 +22,14 @@
 #include "pedigree/kernel/process/Process.h"
 #include "pedigree/kernel/processor/Processor.h"
 
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 #include <vector>
 
 std::vector<FileDescriptor *> g_Descriptors;
 
 FileDescriptor *getDescriptor(int fd)
 {
-    if (fd >= g_Descriptors.size())
+    if ((size_t)fd >= g_Descriptors.size())
     {
         return nullptr;
     }
@@ -45,7 +45,7 @@ void addDescriptor(int fd, FileDescriptor *f)
         delete old;
     }
 
-    if (fd > g_Descriptors.capacity())
+    if ((size_t)fd > g_Descriptors.capacity())
     {
         g_Descriptors.reserve(fd + 1);
     }
@@ -64,7 +64,7 @@ PosixSubsystem *getSubsystem()
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");

@@ -45,6 +45,10 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     friend class CacheManager;
     friend class Cache;
 
+#if HOSTED
+    friend class HostedPhysicalMemoryManager;
+#endif
+
   public:
     /** Get the X86CommonPhysicalMemoryManager instance
      *\return instance of the X86CommonPhysicalMemoryManager */
@@ -68,12 +72,10 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
      *\param[in] Info reference to the multiboot information structure */
     void initialise(const BootstrapStruct_t &Info) INITIALISATION_ONLY;
 
-/** Initialise the page stack, with ranges above 4 GB. Requires ranges
- *  below 4 GB to be available (call initialise first).
- *\param[in] Info reference to the multiboot information structure */
-#ifdef X64
+    /** Initialise the page stack, with ranges above 4 GB. Requires ranges
+     *  below 4 GB to be available (call initialise first).
+     *\param[in] Info reference to the multiboot information structure */
     void initialise64(const BootstrapStruct_t &Info) INITIALISATION_ONLY;
-#endif
 
     /** Unmap & free the .init section */
     void initialisationDone();
@@ -81,12 +83,10 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     /** Clean up tracking structures. */
     void shutdown();
 
-#if defined(ACPI)
-    inline const RangeList<uint64_t> &getAcpiRanges() const
+    const RangeList<uint64_t> &getAcpiRanges() const
     {
         return m_AcpiRanges;
     }
-#endif
 
     /** Specifies the number of pages that remain free on the system. */
     virtual size_t freePageCount() const;
@@ -119,6 +119,9 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     class PageStack
     {
         friend class X86CommonPhysicalMemoryManager;
+#if HOSTED
+        friend class HostedPhysicalMemoryManager;
+#endif
 
       public:
         /** Default constructor does nothing */
@@ -166,18 +169,23 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
         PageStack &operator=(const PageStack &);
 
         /**
+         * Initialize the stacks if needed.
+         * This is needed to avoid a dependency on the order of construction of
+         * VirtualAddressSpace objects for the kernel address space. Otherwise
+         * we can try to get page stack addresses from an unconstructed
+         * VirtualAddressSpace object.
+         */
+        void initialise();
+
+        /**
          * Potentially use the given page to map paging structures for future
          * stack frees.
          * \return true if the page was consumed, false otherwise.
          */
         bool maybeMap(size_t index, uint64_t physicalAddress);
 
-/** The number of Stacks */
-#if defined(X86)
-        static const size_t StackCount = 1;
-#elif defined(X64)
+        /** The number of Stacks */
         static const size_t StackCount = 3;
-#endif
 
         /** Pointer to the base address of the stack. The stack grows upwards.
          */
@@ -208,10 +216,8 @@ class X86CommonPhysicalMemoryManager : public PhysicalMemoryManager
     /** RangeList of free physical memory */
     RangeList<uint64_t> m_PhysicalRanges;
 
-#if defined(ACPI)
     /** RangeList of ACPI memory */
     RangeList<uint64_t> m_AcpiRanges;
-#endif
 
     /** Virtual-memory available for MemoryRegions
      *\todo rename this member (conflicts with

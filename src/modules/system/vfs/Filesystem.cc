@@ -40,13 +40,14 @@ Filesystem::~Filesystem() = default;
 
 File *Filesystem::getTrueRoot()
 {
-#ifdef THREADS
-    Process *pProcess =
-        Processor::information().getCurrentThread()->getParent();
-    File *maybeRoot = pProcess->getRootFile();
-    if (maybeRoot)
-        return maybeRoot;
-#endif
+    EMIT_IF(THREADS)
+    {
+        Process *pProcess =
+            Processor::information().getCurrentThread()->getParent();
+        File *maybeRoot = pProcess->getRootFile();
+        if (maybeRoot)
+            return maybeRoot;
+    }
     return getRoot();
 }
 
@@ -286,8 +287,8 @@ bool Filesystem::remove(const StringView &path, File *pStartNode)
             // Are the entries only ., ..?
             for (auto it : removalDir->getCache())
             {
-                String name = (*it)->getName();
-                if (name != "." && name != "..")
+                const String &name = (*it)->getName();
+                if (!(name.compare(".", 1) || name.compare("..", 2)))
                 {
                     SYSCALL_ERROR(NotEmpty);
                     return false;
@@ -405,10 +406,13 @@ File *Filesystem::findNode(File *pNode, StringView path)
     Directory *reparse = pDir->getReparsePoint();
     if (reparse)
     {
+        String fullPath, reparseFullPath;
+        pDir->getFullPath(fullPath);
+        pDir->getFullPath(reparseFullPath);
         WARNING(
-            "VFS: found reparse point at '" << pDir->getFullPath()
+            "VFS: found reparse point at '" << fullPath
                                             << "', following it (new target: "
-                                            << reparse->getFullPath() << ")");
+                                            << reparseFullPath << ")");
         pDir = reparse;
     }
 

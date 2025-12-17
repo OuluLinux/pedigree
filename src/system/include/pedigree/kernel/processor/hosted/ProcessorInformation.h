@@ -20,6 +20,10 @@
 #ifndef KERNEL_PROCESSOR_HOSTED_PROCESSORINFORMATION_H
 #define KERNEL_PROCESSOR_HOSTED_PROCESSORINFORMATION_H
 
+#define _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
+#include "pedigree/kernel/processor/ProcessorInformation.h"
+#undef _PROCESSOR_INFORMATION_ONLY_WANT_PROCESSORID
+
 #include "pedigree/kernel/processor/types.h"
 
 class Thread;
@@ -32,7 +36,7 @@ class PerProcessorScheduler;
 /** Common hosted processor information structure */
 class HostedProcessorInformation
 {
-    friend class Processor;
+    friend class ProcessorBase;
     friend class Multiprocessor;
 
   public:
@@ -45,11 +49,9 @@ class HostedProcessorInformation
 
     uintptr_t getKernelStack() const;
     void setKernelStack(uintptr_t stack);
-#ifdef THREADS
     Thread *getCurrentThread() const;
     void setCurrentThread(Thread *pThread);
     PerProcessorScheduler &getScheduler();
-#endif
 
   protected:
     /** Construct a HostedProcessorInformation object
@@ -73,12 +75,10 @@ class HostedProcessorInformation
     ProcessorId m_ProcessorId;
     /** The current VirtualAddressSpace */
     VirtualAddressSpace *m_VirtualAddressSpace;
-#ifdef THREADS
     /** The current thread */
     Thread *m_pCurrentThread;
     /** The processor's scheduler. */
     PerProcessorScheduler *m_Scheduler;
-#endif
     /** Kernel stack. */
     uintptr_t m_KernelStack;
 };

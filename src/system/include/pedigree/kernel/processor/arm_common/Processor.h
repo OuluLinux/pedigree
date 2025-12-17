@@ -20,39 +20,10 @@
 #ifndef KERNEL_PROCESSOR_ARM_COMMON_PROCESSOR_H
 #define KERNEL_PROCESSOR_ARM_COMMON_PROCESSOR_H
 
-#include "pedigree/kernel/panic.h"
+#include "pedigree/kernel/processor/Processor.h"
 
-void Processor::halt()
+class ARMCommonProcessor : public ProcessorBase
 {
-    while (1)
-        ;
-}
-
-void Processor::breakpoint()
-{
-    //
-}
-
-void Processor::reset()
-{
-    //
-}
-
-void Processor::haltUntilInterrupt()
-{
-    bool bOldInterrupts = getInterrupts();
-    setInterrupts(true);
-    asm volatile("wfi");
-    setInterrupts(bOldInterrupts);
-}
-
-void Processor::pause()
-{
-    asm volatile("yield");
-}
-
-void Processor::deinitialise()
-{
-}
+};
 
 #endif

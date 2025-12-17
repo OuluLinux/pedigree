@@ -85,7 +85,7 @@ VFS::~VFS()
     }
 }
 
-bool VFS::mount(Disk *pDisk, String &alias)
+bool VFS::mount(Disk *pDisk, String &alias, Filesystem **pMountedFs)
 {
     for (List<Filesystem::ProbeCallback *>::Iterator it =
              m_ProbeCallbacks.begin();
@@ -113,6 +113,13 @@ bool VFS::mount(Disk *pDisk, String &alias)
                 MountCallback mc = *(*it2);
                 mc();
             }
+
+            if (pMountedFs)
+            {
+                *pMountedFs = pFs;
+            }
+
+            NOTICE("mounted '" << alias << "'");
 
             return true;
         }
@@ -153,7 +160,9 @@ void VFS::addAlias(const String &oldAlias, const String &newAlias)
 String VFS::getUniqueAlias(const String &alias)
 {
     if (!aliasExists(alias))
+    {
         return alias;
+    }
 
     // <alias>-n is how we keep them unique
     // negative numbers already have a dash
@@ -164,9 +173,11 @@ String VFS::getUniqueAlias(const String &alias)
         tmpAlias += static_cast<const char *>(alias);
         tmpAlias.append(index);
 
-        String s(static_cast<const char *>(tmpAlias));
+        String s(tmpAlias, tmpAlias.length());
         if (!aliasExists(s))
+        {
             return s;
+        }
         index--;
     }
 }
@@ -344,6 +355,7 @@ bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
         // Pass directly through to the filesystem, if one specified.
         if (!pStartNode)
         {
+            NOTICE("no start node found");
             return false;
         }
         else
@@ -361,6 +373,7 @@ bool VFS::createDirectory(const String &path, uint32_t mask, File *pStartNode)
         Filesystem *pFs = lookupFilesystem(left);
         if (!pFs)
         {
+            NOTICE("no filesystem found for fs " << left);
             return false;
         }
         return pFs->createDirectory(right, mask, 0);
@@ -530,6 +543,33 @@ bool VFS::checkAccess(File *pFile, bool bRead, bool bWrite, bool bExecute)
 
     return true;
 #endif
+}
+
+void VFS::trackFile(File *pFile)
+{
+    size_t n = m_TrackedFiles.lookup(pFile);
+    ++n;
+    m_TrackedFiles.insert(pFile, n);
+}
+
+bool VFS::untrackFile(File *pFile, bool destroy)
+{
+    size_t n = m_TrackedFiles.lookup(pFile);
+    if ((n == 0) || ((n - 1) == 0))
+    {
+        m_TrackedFiles.remove(pFile);
+        if (destroy)
+        {
+            delete pFile;
+        }
+        return true;
+    }
+    else
+    {
+        m_TrackedFiles.insert(pFile, n - 1);
+    }
+
+    return false;
 }
 
 ssize_t VFS::findColon(const String &path)

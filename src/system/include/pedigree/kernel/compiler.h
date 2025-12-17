@@ -48,6 +48,8 @@
 #define PACKED __attribute__((packed))
 /** The type may alias */
 #define MAY_ALIAS __attribute__((may_alias))
+/** The function is a constructor to be run at program load time. */
+#define CONSTRUCTOR __attribute__((constructor))
 /** The expression is very likely to be true */
 #define LIKELY(exp) __builtin_expect(!!(exp), 1)
 /** The expression is very unlikely to be true */
@@ -70,12 +72,28 @@
 #define USED __attribute__((used))
 /** This function can be overridden by a library. */
 #define WEAK __attribute__((weak))
+/** A switch fallthrough is indeed intentional. */
+#if defined(__GNUC__) && __GNUC__ >= 7
+#define FALLSTHROUGH __attribute__((fallthrough));
+#else
+#define FALLSTHROUGH
+#endif
+/** The function is malloc-like, i.e. doesn't return an aliased pointer, memory
+ * is uninitialized, and so on. */
+#define MALLOC __attribute__((malloc))
+/** Hint for the size of an allocation. */
+#define ALLOC_SIZE(...) __attribute__((alloc_size(__VA_ARGS__)))
+/** C function cannot throw an exception. */
+#define C_NOTHROW __attribute__((nothrow))
+/** Macros to wrap things in compile-times conditions. */
+#define EMIT_IF(...) if constexpr (__VA_ARGS__)
 
 /**
  * This function or variable is to be exposed to other objects.
  * This is needed for anything that the kernel will expose to kernel modules.
  */
 #define EXPORTED_PUBLIC __attribute__((visibility("default")))
+#define SYMBOL_HIDDEN __attribute__((visibility("hidden")))
 
 // Builtin checks.
 #ifndef __has_builtin

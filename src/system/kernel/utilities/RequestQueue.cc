@@ -34,15 +34,16 @@ class Process;
 
 RequestQueue::RequestQueue(const String &name)
     : m_Stop(false),
-#ifdef THREADS
+#if THREADS
       m_RequestQueueMutex(false), m_pThread(0), m_Halted(false),
 #endif
-      m_nMaxAsyncRequests(256), m_nAsyncRequests(0), m_Name(name)
+      m_nMaxAsyncRequests(256), m_nAsyncRequests(0),
+      m_Name(name.cstr(), name.length())
 {
     for (size_t i = 0; i < REQUEST_QUEUE_NUM_PRIORITIES; i++)
         m_pRequestQueue[i] = 0;
 
-#ifdef THREADS
+#if THREADS
     m_OverrunChecker.queue = this;
 #endif
 }
@@ -55,10 +56,10 @@ RequestQueue::~RequestQueue()
 void RequestQueue::initialise()
 {
 // Start the worker thread.
-#ifdef THREADS
+#if THREADS
     if (m_pThread)
     {
-        WARNING("RequestQueue initialised multiple times - don't do this.");
+        PEDANTRY("RequestQueue initialised multiple times - don't do this.");
         return;
     }
 
@@ -68,6 +69,7 @@ void RequestQueue::initialise()
     m_Stop = false;
     m_pThread =
         new Thread(pProcess, &trampoline, reinterpret_cast<void *>(this));
+    m_pThread->setName("RequestQueue worker");
     m_Halted = false;
 
     // Add our timer so we can figure out if we're not keeping up with
@@ -84,7 +86,7 @@ void RequestQueue::initialise()
 
 void RequestQueue::destroy()
 {
-#ifdef THREADS
+#if THREADS
     // Halt the queue - we're done.
     halt();
 
@@ -128,7 +130,7 @@ uint64_t RequestQueue::addRequest(
     uint64_t p3, uint64_t p4, uint64_t p5, uint64_t p6, uint64_t p7,
     uint64_t p8)
 {
-#ifdef THREADS
+#if THREADS
     // Create a new request object.
     Request *pReq = new Request();
     pReq->p1 = p1;
@@ -283,7 +285,7 @@ uint64_t RequestQueue::addAsyncRequest(
     size_t priority, uint64_t p1, uint64_t p2, uint64_t p3, uint64_t p4,
     uint64_t p5, uint64_t p6, uint64_t p7, uint64_t p8)
 {
-#ifndef THREADS
+#if !THREADS
     return addRequest(priority, p1, p2, p3, p4, p5, p6, p7, p8);
 #else
     // Create a new request object.
@@ -324,6 +326,7 @@ uint64_t RequestQueue::addAsyncRequest(
     Process *pProcess = Scheduler::instance().getKernelProcess();
     Thread *pThread =
         new Thread(pProcess, &doAsync, reinterpret_cast<void *>(pReq));
+    pThread->setName("RequestQueue async request");
     pThread->detach();
 #endif
 
@@ -332,7 +335,7 @@ uint64_t RequestQueue::addAsyncRequest(
 
 void RequestQueue::halt()
 {
-#ifdef THREADS
+#if THREADS
     m_RequestQueueMutex.acquire();
     if (!m_Halted)
     {
@@ -354,7 +357,7 @@ void RequestQueue::halt()
 
 void RequestQueue::resume()
 {
-#ifdef THREADS
+#if THREADS
     LockGuard<Mutex> guard(m_RequestQueueMutex);
 
     if (m_Halted)
@@ -372,7 +375,7 @@ int RequestQueue::trampoline(void *p)
 
 RequestQueue::Request *RequestQueue::getNextRequest()
 {
-#ifdef THREADS
+#if THREADS
     // Must have the lock to be here.
     assert(!m_RequestQueueMutex.getValue());
 #endif
@@ -406,7 +409,7 @@ RequestQueue::Request *RequestQueue::getNextRequest()
 
 int RequestQueue::work()
 {
-#ifdef THREADS
+#if THREADS
     // Hold from the start - this will be released by the condition variable
     // wait for us, and re-acquired on return, so we'll always have the lock
     // until we explicitly release it.
@@ -416,6 +419,7 @@ int RequestQueue::work()
         // Do we need to stop?
         if (m_Stop)
         {
+            NOTICE("RequestQueue is terminating!");
             m_RequestQueueMutex.release();
             return 0;
         }
@@ -488,7 +492,7 @@ int RequestQueue::work()
 #endif
 }
 
-#ifdef THREADS
+#if THREADS
 void RequestQueue::RequestQueueOverrunChecker::timer(
     uint64_t delta, InterruptState &)
 {
@@ -519,7 +523,7 @@ void RequestQueue::RequestQueueOverrunChecker::timer(
 
 bool RequestQueue::isRequestValid(const Request *r)
 {
-#ifdef THREADS
+#if THREADS
     // Halted RequestQueue already has the RequestQueue mutex held.
     LockGuard<Mutex> guard(m_RequestQueueMutex);
 #endif

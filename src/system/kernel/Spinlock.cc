@@ -21,7 +21,7 @@
 #include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/processor/ProcessorInformation.h"
 
-#ifdef TRACK_LOCKS
+#if TRACK_LOCKS
 #include "pedigree/kernel/debugger/commands/LocksCommand.h"
 #endif
 
@@ -72,7 +72,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
             << "] return=" << myra);
     }
 
-#ifdef TRACK_LOCKS
+#if TRACK_LOCKS
     if (!m_bAvoidTracking)
     {
         g_LocksCommand.clearFatal();
@@ -100,7 +100,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
 
         Processor::pause();
 
-#ifdef TRACK_LOCKS
+#if TRACK_LOCKS
         if (!m_bAvoidTracking)
         {
             g_LocksCommand.clearFatal();
@@ -116,7 +116,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
         }
 #endif
 
-#ifdef MULTIPROCESSOR
+#if MULTIPROCESSOR
         if (Processor::getCount() > 1)
         {
             if (safe)
@@ -142,7 +142,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
         ///       depends on the log spinlock, which may have deadlocked. So we
         ///       actually force the spinlock to release here, then hit the
         ///       breakpoint.
-        size_t atom = m_Atom;
+        auto atom = m_Atom.value();
         m_Atom = true;
 
         uintptr_t myra =
@@ -162,7 +162,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
     }
     m_Ra = reinterpret_cast<uintptr_t>(__builtin_return_address(0));
 
-#ifdef TRACK_LOCKS
+#if TRACK_LOCKS
     if (!m_bAvoidTracking)
     {
         g_LocksCommand.clearFatal();
@@ -193,7 +193,7 @@ bool Spinlock::acquire(bool recurse, bool safe)
 
 void Spinlock::trackRelease() const
 {
-#ifdef TRACK_LOCKS
+#if TRACK_LOCKS
     if (!m_bAvoidTracking)
     {
         g_LocksCommand.clearFatal();
@@ -210,7 +210,7 @@ void Spinlock::trackRelease() const
 #endif
 }
 
-void Spinlock::exit()
+void Spinlock::exit(uintptr_t ra)
 {
     bool bWasInterrupts = Processor::getInterrupts();
     if (bWasInterrupts == true)
@@ -251,14 +251,12 @@ void Spinlock::exit()
         ///       depends on the log spinlock, which may have deadlocked. So we
         ///       actually force the spinlock to release here, then hit the
         ///       breakpoint.
-        size_t atom = m_Atom;
+        auto atom = m_Atom.value();
         m_Atom = true;
 
-        uintptr_t myra =
-            reinterpret_cast<uintptr_t>(__builtin_return_address(0));
         FATAL_NOLOCK(
             "Spinlock has deadlocked in release, my return address is "
-            << Hex << myra << ", return address of other locker is " << m_Ra
+            << Hex << ra << ", return address of other locker is " << m_Ra
             << ", spinlock is " << reinterpret_cast<uintptr_t>(this)
             << ", atom is " << Dec << atom << ".");
 
@@ -274,7 +272,11 @@ void Spinlock::release()
 {
     bool bInterrupts = m_bInterrupts;
 
-    exit();
+    // Grab return address to push into exit() so failures are more useful
+    uintptr_t myra =
+        reinterpret_cast<uintptr_t>(__builtin_return_address(0));
+
+    exit(myra);
 
     // Reenable irqs if they were enabled before
     if (bInterrupts)

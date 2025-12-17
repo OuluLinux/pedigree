@@ -56,7 +56,7 @@ class UnixFilesystem : public Filesystem
         return m_pRoot;
     }
 
-    virtual String getVolumeLabel() const
+    virtual const String &getVolumeLabel() const
     {
         return m_VolumeLabel;
     }
@@ -127,7 +127,7 @@ class UnixSocket : public File
     };
 
     UnixSocket(
-        String name, Filesystem *pFs, File *pParent,
+        const String &name, Filesystem *pFs, File *pParent,
         UnixSocket *other = nullptr, SocketType type = Datagram);
     virtual ~UnixSocket();
 
@@ -223,6 +223,7 @@ class UnixSocket : public File
         char *pBuffer;
         uint64_t len;
         char *remotePath;  // Path of the socket that dumped data here, if any.
+        size_t remotePathLen;
     };
 
     SocketType m_Type;
@@ -233,7 +234,8 @@ class UnixSocket : public File
     // Note: "servers" own the actual UNIX socket address, while clients get a
     // virtual address to track their existence (or are bound to a specific
     // name themselves).
-    RingBuffer<struct buf *> m_Datagrams;
+    typedef RingBuffer<struct buf *> DatagramBuffer;
+    DatagramBuffer m_Datagrams;
 
     // For stream sockets.
 
@@ -250,7 +252,7 @@ class UnixSocket : public File
     Mutex m_Mutex;
 
     // Ack waiter lock
-#ifdef THREADS
+#if THREADS
     Semaphore m_AckWaiter;
 #endif
 
@@ -264,10 +266,10 @@ class UnixSocket : public File
 class UnixDirectory : public Directory
 {
   public:
-    UnixDirectory(String name, Filesystem *pFs, File *pParent);
+    UnixDirectory(const String &name, Filesystem *pFs, File *pParent);
     virtual ~UnixDirectory();
 
-    bool addEntry(String filename, File *pFile);
+    bool addEntry(const String &filename, File *pFile);
     bool removeEntry(File *pFile);
 
     virtual void cacheDirectoryContents();

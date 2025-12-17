@@ -17,9 +17,58 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef KERNEL_PROCESSOR_X86_PROCESSOR_H
-#define KERNEL_PROCESSOR_X86_PROCESSOR_H
-
+#include "pedigree/kernel/processor/Processor.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/panic.h"
 
-#endif
+void ProcessorBase::initialisationDone()
+{
+}
+
+ProcessorId ProcessorBase::id()
+{
+    return 0;
+}
+
+ProcessorInformation &ProcessorBase::information()
+{
+    return m_SafeBspProcessorInformation;
+}
+
+size_t ProcessorBase::getCount()
+{
+    return 1;
+}
+
+void ProcessorBase::halt()
+{
+    while (1)
+        ;
+}
+
+void ProcessorBase::breakpoint()
+{
+    //
+}
+
+void ProcessorBase::reset()
+{
+    //
+}
+
+void ProcessorBase::haltUntilInterrupt()
+{
+    bool bOldInterrupts = getInterrupts();
+    setInterrupts(true);
+    asm volatile("wfi");
+    setInterrupts(bOldInterrupts);
+}
+
+void ProcessorBase::pause()
+{
+    asm volatile("yield");
+}
+
+void ProcessorBase::deinitialise()
+{
+}

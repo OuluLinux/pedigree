@@ -27,6 +27,7 @@
 #include "pedigree/kernel/process/Scheduler.h"
 #include "pedigree/kernel/time/Time.h"
 #include "pedigree/kernel/utilities/StaticCord.h"
+#include "pedigree/kernel/utilities/Cord.h"
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/Vector.h"
@@ -35,7 +36,7 @@
 extern BootstrapStruct_t *g_pBootstrapInfo;
 
 /** Maximum number of repeated log messages to de-dupe. */
-#define LOG_MAX_DEDUPE_MESSAGES     20
+#define LOG_MAX_DEDUPE_MESSAGES 20
 
 /** Show log timestamps in nanoseconds. */
 #define LOG_TIMESTAMPS_IN_NANOS     0
@@ -51,7 +52,7 @@ TinyStaticString Log::m_WarningSeverityString("(WW) ");
 TinyStaticString Log::m_ErrorSeverityString("(EE) ");
 TinyStaticString Log::m_FatalSeverityString("(FF) ");
 
-#ifndef SERIAL_IS_FILE
+#if !SERIAL_IS_FILE
 TinyStaticString Log::m_LineEnding("\r\n");
 #else
 TinyStaticString Log::m_LineEnding("\n");
@@ -75,16 +76,10 @@ static const size_t g_NumRepeatedStrings = 20;
 
 Log::Log()
     :
-#ifdef THREADS
       m_Lock(),
-#endif
-      m_StaticEntries(0), m_StaticEntryStart(0), m_StaticEntryEnd(0),
+      m_StaticLog(), m_StaticEntries(0), m_StaticEntryStart(0), m_StaticEntryEnd(0),
       m_Buffer(),
-#ifdef DONT_LOG_TO_SERIAL
-      m_EchoToSerial(false),
-#else
-      m_EchoToSerial(true),
-#endif
+      m_EchoToSerial(LOG_TO_SERIAL),
       m_nOutputCallbacks(0),
       m_LastEntryHash(0),
       m_LastEntrySeverity(Fatal),
@@ -100,8 +95,10 @@ Log::Log()
 
 Log::~Log()
 {
+    // can't render a timestamp, by the time we're shutting down here the
+    // machine instance is gone
     LogEntry entry;
-    entry << Notice << "-- Log Terminating --";
+    entry << NoTimestamp << Notice << "-- Log Terminating --";
     addEntry(entry);
 }
 
@@ -112,14 +109,14 @@ Log &Log::instance()
 
 void Log::initialise1()
 {
-#ifndef ARM_COMMON
+#if !ARM_COMMON
     char *cmdline = g_pBootstrapInfo->getCommandLine();
     if (cmdline)
     {
         Vector<String> cmds = String(cmdline).tokenise(' ');
         for (auto it = cmds.begin(); it != cmds.end(); it++)
         {
-            auto cmd = *it;
+            auto &cmd = *it;
             if (cmd == String("--disable-log-to-serial"))
             {
                 m_EchoToSerial = false;
@@ -137,18 +134,17 @@ void Log::initialise1()
 
 void Log::initialise2()
 {
-#ifndef DONT_LOG_TO_SERIAL
-    if (m_EchoToSerial)
-        installSerialLogger();
-#endif
+    EMIT_IF(LOG_TO_SERIAL)
+    {
+        if (m_EchoToSerial)
+            installSerialLogger();
+    }
 }
 
 void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
 {
     {
-#ifdef THREADS
         LockGuard<Spinlock> guard(m_Lock);
-#endif
         bool ok = false;
         for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
         {
@@ -192,15 +188,19 @@ void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
             if (m_Timestamps)
             {
                 const NormalStaticString &ts = getTimestamp();
-                msg.append(ts, ts.length());
+                if (ts.length())
+                {
+                    msg.append(ts, ts.length());
+                }
             }
             msg.append(m_StaticLog[entry].str, m_StaticLog[entry].str.length());
             msg.append(m_LineEnding, m_LineEnding.length());
+            bool locked = !m_StaticLog[entry].lockfree;
 
             /// \note This could send a massive batch of log entries on the
             ///       callback. If the callback isn't designed to handle big
             ///       buffers this may fail.
-            pCallback->callback(msg);
+            pCallback->callback(msg, locked);
         }
 
         entry = (entry + 1) % LOG_ENTRIES;
@@ -208,9 +208,7 @@ void Log::installCallback(LogCallback *pCallback, bool bSkipBacklog)
 }
 void Log::removeCallback(LogCallback *pCallback)
 {
-#ifdef THREADS
     LockGuard<Spinlock> guard(m_Lock);
-#endif
     for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
     {
         if (m_OutputCallbacks[i] == pCallback)
@@ -265,13 +263,46 @@ Log::LogEntry &Log::LogEntry::operator<<(const char *s)
 
 Log::LogEntry &Log::LogEntry::operator<<(const String &s)
 {
-    str.appendBytes(s, s.length());
+    str.appendBytes(s.cstr(), s.length());
     return *this;
 }
 
 Log::LogEntry &Log::LogEntry::operator<<(const StringView &s)
 {
     str.appendBytes(s.str(), s.length());
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(const Cord &c)
+{
+    for (auto it = c.segbegin(); it != c.segend(); ++it)
+    {
+        str.appendBytes(it.ptr(), it.length());
+    }
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(const TinyStaticString &s)
+{
+    str.appendBytes(s, s.length());
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(const NormalStaticString &s)
+{
+    str.appendBytes(s, s.length());
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(const LargeStaticString &s)
+{
+    str.appendBytes(s, s.length());
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(const HugeStaticString &s)
+{
+    str.appendBytes(s, s.length());
     return *this;
 }
 
@@ -318,17 +349,34 @@ Log::LogEntry &Log::LogEntry::operator<<(SeverityLevel level)
     str.clear();
     severity = level;
 
-#ifndef UTILITY_LINUX
-    Machine &machine = Machine::instance();
-    if (machine.isInitialised() == true && machine.getTimer() != 0)
-    {
-        Timer &timer = *machine.getTimer();
-        timestamp = timer.getTickCount();
-    }
-    else
-        timestamp = 0;
-#endif
+    timestamp = 0;
 
+    EMIT_IF(!UTILITY_LINUX)
+    {
+        if (showTimestamp)
+        {
+            Machine &machine = Machine::instance();
+            if (machine.isInitialised() == true && machine.getTimer() != 0)
+            {
+                Timer &timer = *machine.getTimer();
+                timestamp = timer.getTickCount();
+            }
+        }
+    }
+
+    return *this;
+}
+
+Log::LogEntry &Log::LogEntry::operator<<(LogEntryModifier modifier)
+{
+    if (modifier == Unlocked)
+    {
+        lockfree = true;
+    }
+    else if (modifier == NoTimestamp)
+    {
+        showTimestamp = false;
+    }
     return *this;
 }
 
@@ -344,7 +392,7 @@ template Log::LogEntry &Log::LogEntry::operator<<(long);
 template Log::LogEntry &Log::LogEntry::operator<<(unsigned long);
 // NOTE: Instantiating these for MIPS32 requires __udiv3di, but we only have
 //       __udiv3ti (??) in libgcc.a for mips.
-#ifndef MIPS32
+#if !MIPS32
 template Log::LogEntry &Log::LogEntry::operator<<(long long);
 template Log::LogEntry &Log::LogEntry::operator<<(unsigned long long);
 #endif
@@ -380,12 +428,11 @@ void Log::flushEntry(bool lock)
     static bool handlingFatal = false;
 
     LogCord msg;
+    TinyStaticString repeated;
     msg.clear();
 
-#ifdef THREADS
     if (lock)
         m_Lock.acquire();
-#endif
 
     if (m_StaticEntries >= LOG_ENTRIES)
     {
@@ -397,12 +444,10 @@ void Log::flushEntry(bool lock)
     m_StaticLog[m_StaticEntryEnd] = m_Buffer;
     m_StaticEntryEnd = (m_StaticEntryEnd + 1) % LOG_ENTRIES;
 
-#ifdef THREADS
     // no need for lock anymore - all tracked now
     // remaining work hits callbacks which can lock themselves
     if (lock)
         m_Lock.release();
-#endif
 
     if (m_nOutputCallbacks)
     {
@@ -421,11 +466,6 @@ void Log::flushEntry(bool lock)
 
                 if (m_HashMatchedCount < LOG_MAX_DEDUPE_MESSAGES)
                 {
-
-#ifdef THREADS
-                    // this thread is spammy, let something else run for a bit
-                    //Scheduler::instance().yield();
-#endif
                     return;
                 }
             }
@@ -452,7 +492,6 @@ void Log::flushEntry(bool lock)
             }
             else
             {
-                TinyStaticString repeated;
                 repeated.append(repeatedTimes);
                 msg.append(repeated, repeated.length());
             }
@@ -465,16 +504,20 @@ void Log::flushEntry(bool lock)
         if (m_Timestamps)
         {
             const NormalStaticString &ts = getTimestamp();
-            msg.append(ts, ts.length());
+            if (ts.length())
+            {
+                msg.append(ts, ts.length());
+            }
         }
         msg.append(m_Buffer.str, m_Buffer.str.length());
         msg.append(m_LineEnding, m_LineEnding.length());
+        bool locked = !m_Buffer.lockfree;
 
         for (size_t i = 0; i < LOG_CALLBACK_COUNT; ++i)
         {
             if (m_OutputCallbacks[i] != nullptr)
             {
-                m_OutputCallbacks[i]->callback(msg);
+                m_OutputCallbacks[i]->callback(msg, locked);
             }
         }
     }
@@ -486,10 +529,11 @@ void Log::flushEntry(bool lock)
 
         const char *panicstr = static_cast<const char *>(m_Buffer.str);
 
-// Attempt to trap to debugger, panic if that fails.
-#ifdef DEBUGGER
-        Processor::breakpoint();
-#endif
+        // Attempt to trap to debugger, panic if that fails.
+        EMIT_IF(DEBUGGER)
+        {
+            Processor::breakpoint();
+        }
         panic(panicstr);
     }
 }
@@ -509,11 +553,14 @@ const NormalStaticString &Log::getTimestamp()
     Time::Timestamp tn = Time::getTimeNanoseconds();
     Time::Timestamp ts = Time::getTime();
     Time::Timestamp t;
-#if LOG_TIMESTAMPS_IN_NANOS
-    t = tn;
-#else
-    t = ts;
-#endif
+    EMIT_IF(LOG_TIMESTAMPS_IN_NANOS)
+    {
+        t = tn;
+    }
+    else
+    {
+        t = ts;
+    }
     if (t == m_LastTime)
     {
         return m_CachedTimestamp;

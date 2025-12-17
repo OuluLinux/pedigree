@@ -27,7 +27,7 @@
 #include "pedigree/kernel/utilities/cpp.h"  // IWYU pragma: export
 #include "pedigree/kernel/utilities/lib.h"  // IWYU pragma: export
 
-#if defined(HOSTED) && !defined(UTILITY_LINUX)
+#if HOSTED && !UTILITY_LINUX
 // Override headers we are replacing.
 #define _STRING_H 1
 #endif
@@ -43,7 +43,7 @@
      ((x & 0x0000FF00) << 8) | ((x & 0x000000FF) << 24))
 #define BS64(x) (x)
 
-#ifdef TARGET_IS_LITTLE_ENDIAN
+#if TARGET_IS_LITTLE_ENDIAN
 
 #define LITTLE_TO_HOST8(x) (x)
 #define LITTLE_TO_HOST16(x) (x)
@@ -101,14 +101,14 @@ EXPORTED_PUBLIC void *page_align(void *p) PURE;
  *\brief Adjust a pointer
  *\return new pointer pointing to 'pointer + offset' (NOT pointer arithmetic!)
  */
-template <typename T>
-inline T *adjust_pointer(T *pointer, ssize_t offset)
+template <typename T1, typename T2 = T1>
+T2 *adjust_pointer(T1 *pointer, ssize_t offset)
 {
-    return reinterpret_cast<T *>(reinterpret_cast<intptr_t>(pointer) + offset);
+    return reinterpret_cast<T2 *>(reinterpret_cast<intptr_t>(pointer) + offset);
 }
 
 template <typename T>
-inline void swap(T a, T b)
+void swap(T a, T b)
 {
     T t = a;
     a = b;
@@ -117,7 +117,7 @@ inline void swap(T a, T b)
 
 /** Return b - a. */
 template <typename T1, typename T2>
-inline intptr_t pointer_diff(const T1 *a, const T2 *b)
+intptr_t pointer_diff(const T1 *a, const T2 *b)
 {
     return reinterpret_cast<uintptr_t>(b) - reinterpret_cast<uintptr_t>(a);
 }
@@ -130,7 +130,7 @@ constexpr intptr_t pointer_diff_const(T1 *a, T2 *b)
 
 /** Return the difference between a and b, without a sign. */
 template <typename T1, typename T2>
-inline uintptr_t abs_difference(T1 a, T2 b)
+uintptr_t abs_difference(T1 a, T2 b)
 {
     intptr_t value = b - a;
     if (value < 0)

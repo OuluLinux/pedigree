@@ -1,50 +1,35 @@
+
 SECTIONS
 {
-    .text :
-    {
-        . = ALIGN(4096);
-        *(.text*)
-    }
+    . = ALIGN(4096);
 
-    .data :
+    .cdtors :
     {
-        . = ALIGN(4096);
-        start_ctors = .;
+        PROVIDE(start_kernel_ctors = .);
+        *(.ctors)
         *(.init_array*)
-        end_ctors = .;
+        PROVIDE(end_kernel_ctors = .);
 
-        . = ALIGN(4096);
-        start_dtors = .;
+        PROVIDE(start_kernel_dtors = .);
+        *(.dtors)
         *(.fini_array*)
-        end_dtors = .;
+        PROVIDE(end_kernel_dtors = .);
+    }
 
-        start_modinfo = .;
+    .modinfo :
+    {
+        PROVIDE(start_modinfo = .);
         KEEP(*(.modinfo*));
-        end_modinfo = .;
-    }
+        PROVIDE(end_modinfo = .);
 
-    old_loc = .;
-    .syscall (0x399000) :
-    {
-        start_syscall = .;
-        *(.syscall*)
-        end_syscall = .;
-    }
-    . = old_loc;
+        PROVIDE(start_module_ctors = .);
+        *(.module_ctors)
+        PROVIDE(end_module_ctors = .);
 
-    .bss :
-    {
-        . = ALIGN(4096);
-        *(.asm.bss*)
-        *(.bss*)
-    }
-
-    .end :
-    {
-        . = ALIGN(4096);
-        end = .; _end = .; __end = .;
+        PROVIDE(start_module_dtors = .);
+        *(.module_dtors)
+        PROVIDE(end_module_dtors = .);
     }
 }
 
-/* Inserts our linker scripts before the default script's .init */
-INSERT BEFORE .init;
+INSERT AFTER .rodata;

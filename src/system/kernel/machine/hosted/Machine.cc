@@ -107,4 +107,5 @@ HostedMachine::HostedMachine()
 
 HostedMachine::~HostedMachine()
 {
+    HostedTimer::instance().uninitialise();
 }

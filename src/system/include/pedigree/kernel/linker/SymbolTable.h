@@ -92,6 +92,9 @@ class SymbolTable
     void preallocateAdditional(
         size_t numGlobal, size_t numWeak, Elf *localElf, size_t numLocal);
 
+    /** Has a preallocation already taken place on this SymbolTable? */
+    bool hasPreallocated() const;
+
     void eraseByElf(Elf *pParent);
 
     /** Looks up a symbol in the table, optionally outputting the
@@ -163,9 +166,9 @@ class SymbolTable
 
     Elf *m_pOriginatingElf;
 
-#ifdef THREADS
     Mutex m_Lock;
-#endif
+
+    bool m_bPreallocated;
 };
 
 #endif

@@ -104,6 +104,7 @@ static void runScripts()
     }
     else
     {
+        klog(LOG_INFO, "init: %d init script entries found", count);
         for (int i = 0; i < count; ++i)
         {
             char script[PATH_MAX];
@@ -181,13 +182,16 @@ int main(int argc, char **argv)
     // Prepare signals.
     signal(SIGTERM, sigterm);
 
-#ifdef HOSTED
-    // Reboot the system instead of starting up.
-    klog(LOG_INFO, "init: hosted build, triggering a reboot");
-    pedigree_reboot();
-#else
-    runScripts();
-#endif
+    if (HOSTED)
+    {
+        // Reboot the system instead of starting up.
+        klog(LOG_INFO, "init: hosted build, triggering a reboot");
+        pedigree_reboot();
+    }
+    else
+    {
+        runScripts();
+    }
 
     // Done, enter PID reaping loop.
     klog(LOG_INFO, "init: complete!");

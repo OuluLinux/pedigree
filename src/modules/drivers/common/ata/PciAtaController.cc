@@ -109,9 +109,6 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
 
     m_Children.clear();
 
-    // Set up the RequestQueue
-    initialise();
-
     // Read the BusMaster interface base address register and tell it where we
     // would like to talk to it (BAR4).
     if (bar4)
@@ -181,7 +178,7 @@ PciAtaController::PciAtaController(Controller *pDev, int nController)
         bDma = true;
     }
 
-#ifndef KERNEL_PROCESSOR_NO_PORT_IO
+#if !KERNEL_PROCESSOR_NO_PORT_IO
     IoPort *masterCommand = new IoPort("pci-ide-master-cmd");
     IoPort *slaveCommand = new IoPort("pci-ide-slave-cmd");
     IoPort *masterControl = new IoPort("pci-ide-master-ctl");

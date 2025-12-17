@@ -162,9 +162,11 @@ void unmapAll()
 Spinlock::Spinlock() = default;
 
 Spinlock::Spinlock(bool bLocked, bool bAvoidTracking)
-    : m_bInterrupts(), m_Atom(!bLocked), m_CpuState(0), m_Ra(0),
-      m_bAvoidTracking(bAvoidTracking), m_Magic(0xdeadbaba), m_pOwner(0),
-      m_bOwned(false), m_Level(0), m_OwnedProcessor(~0)
+    : m_bInterrupts(), m_Atom(!bLocked), m_CpuState(0),
+      m_Magic(0xdeadbaba), m_pOwner(0), m_Level(0),
+      m_OwnedProcessor(~0), m_Ra(0),
+      m_bAvoidTracking(bAvoidTracking),
+      m_bOwned(false)
 {
 }
 
@@ -181,7 +183,7 @@ void Spinlock::release()
     exit();
 }
 
-void Spinlock::exit()
+void Spinlock::exit(uintptr_t)
 {
     m_Atom.compareAndSwap(false, true);
 }
@@ -363,9 +365,13 @@ ssize_t Mutex::getValue()
 }
 
 /** Cache implementation. */
-#ifdef STANDALONE_CACHE
 void Cache::discover_range(uintptr_t &start, uintptr_t &end)
 {
+    EMIT_IF(!STANDALONE_CACHE)
+    {
+        return;
+    }
+
     static uintptr_t alloc_start = 0;
     const size_t length = 0x80000000U;
 
@@ -386,7 +392,6 @@ void Cache::discover_range(uintptr_t &start, uintptr_t &end)
         end = start + length;
     }
 }
-#endif
 
 MemoryPool::MemoryPool()
     : m_BufferSize(4096), m_BufferCount(0), m_bInitialised(false),
@@ -465,12 +470,12 @@ void TimeoutGuard::cancel()
     siglongjmp(*buf, 1);
 }
 
-size_t Processor::id()
+size_t ProcessorBase::id()
 {
     return 0;
 }
 
-void Processor::pause()
+void ProcessorBase::pause()
 {
 }
 
@@ -481,6 +486,6 @@ bool normalisePath(String &nameToOpen, const char *name, bool *onDevFs)
         *onDevFs = false;
     }
 
-    nameToOpen = name;
+    nameToOpen.assign(name);
     return true;
 }

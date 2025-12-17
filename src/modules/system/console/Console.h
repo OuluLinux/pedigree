@@ -168,7 +168,7 @@ class ConsoleFile : public File
 
   private:
     size_t m_ConsoleNumber;
-    String m_Name;
+    String m_ConsoleName;
 
     /**
      * Event to fire when an event takes place that needs action. For
@@ -390,9 +390,10 @@ class EXPORTED_PUBLIC ConsoleManager : public Filesystem
     {
         return 0;
     }
-    virtual String getVolumeLabel() const
+    virtual const String &getVolumeLabel() const
     {
-        return String("consolemanager");
+        static String volumeLabel("consolemanager");
+        return volumeLabel;
     }
 
   protected:

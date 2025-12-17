@@ -72,7 +72,7 @@ static bool entry()
     auto f = [](Device *p) {
         if (p->addresses().count() > 0)
         {
-            if (p->addresses()[0]->m_Name == "ib700-base")
+            if (p->addresses()[0]->m_Name.compare("ib700-base"))
             {
                 Ib700Watchdog *pNewChild = new Ib700Watchdog(p);
                 if (pNewChild->initialise())
@@ -143,7 +143,7 @@ bool Ib700Watchdog::initialise()
 
 void Ib700Watchdog::getName(String &str)
 {
-    str = "ib700_wdt";
+    str.assign("ib700_wdt", 10);
 }
 
 void Ib700Watchdog::timer(uint64_t delta, InterruptState &state)

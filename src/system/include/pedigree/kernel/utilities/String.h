@@ -29,20 +29,20 @@
 #include "pedigree/kernel/utilities/Vector.h"
 #include "pedigree/kernel/utilities/template.h"  // IWYU pragma: keep
 
-// If non-zero, a constexpr constructor will be available in String. It is an
-// experimental change that needs some more work to be stable.
-#define STRING_WITH_CONSTEXPR_CONSTRUCTOR 0
-
-// If non-zero, all copy-construction will be disabled. An explicit call to
-// copy() is needed to actively copy a String object in that case. This can be
-// helpful for removing copies that are not necessary.
-#define STRING_DISABLE_COPY_CONSTRUCTION 0
+// If non-zero, disable expensive forms of copy construction.
+#ifdef IN_STRING_TESTSUITE
+#define STRING_DISABLE_EXPENSIVE_COPY_CONSTRUCTION 0
+#else
+#define STRING_DISABLE_EXPENSIVE_COPY_CONSTRUCTION 1
+#endif
 
 // Disable just-in-time hashing on all string objects, which causes String
 // creation (including from substrings and copies) to be much slower, but can
 // avoid many re-hashes on const String objects that would otherwise be unable
 // to store the hash.
 #define STRING_DISABLE_JIT_HASHING 0
+
+class Cord;
 
 /** String class for ASCII strings
  *\todo provide documentation */
@@ -51,34 +51,33 @@ class EXPORTED_PUBLIC String
   public:
     /** The default constructor does nothing */
     String();
-    String(const char *s);
-    String(const char *s, size_t length);
-#if STRING_DISABLE_COPY_CONSTRUCTION
-    String(const String &x) = delete;
-#else
+    // The constructors marked explicit are slow, but sometimes the only way
+    // to instantiate a String object. The intention to these being explicit
+    // is that they will not be used accidentally.
+    explicit String(const char *s);
+    explicit String(const char *s, size_t length);
+    explicit String(const char *s, size_t length, bool unsafe);
+    explicit String(const Cord &x);
     String(const String &x);
-#endif
+    explicit String(const StringView &x);
     String(String &&x);
-    ~String();
-
-#if STRING_WITH_CONSTEXPR_CONSTRUCTOR
-    template <size_t N>
-    constexpr String(const char (&s)[N]);
-#endif
+    virtual ~String();
 
     String &operator=(String &&x);
-#if !STRING_DISABLE_COPY_CONSTRUCTION
+    String &operator=(const Cord &x);
     String &operator=(const String &x);
+#if STRING_DISABLE_EXPENSIVE_COPY_CONSTRUCTION
+    String &operator=(const char *s) = delete;
+#else
     String &operator=(const char *s);
 #endif
-    operator const char *() const
+    /** The const char * operator needs to be explicit to avoid unintentional
+     * conversion to const char * where a String& would be preferable.
+     * cstr() is the better option for obtaining a const char * from a String.
+     */
+    explicit operator const char *() const
     {
-        if (m_Size == StaticSize)
-            return m_Static;
-        else if (m_Data == 0)
-            return "";
-        else
-            return m_Data;
+        return cstr();
     }
     /** Allow implicit typecasts to StringView for passing String to functions
      * taking a StringView. */
@@ -92,6 +91,29 @@ class EXPORTED_PUBLIC String
     bool operator==(const String &s) const;
     bool operator==(const StringView &s) const;
     bool operator==(const char *s) const;
+
+    /** Perform a string comparison with the given string. */
+    bool compare(const char *s, size_t len) const;
+
+    /**
+     * Perform a string comparison with the given constant string.
+     * You should use this rather than operator== for these types of
+     * comparisons as this uses a length hint to potentially avoid
+     * an actual comparison of the string contents.
+     */
+    template<size_t N>
+    bool compare(const char (&s)[N]) const
+    {
+        // ignore null in c-string for comparison
+        return compare(s, N - 1);
+    }
+
+    char operator[](size_t i) const;
+
+    const char *cstr() const
+    {
+        return extract();
+    }
 
     size_t length() const
     {
@@ -135,6 +157,12 @@ class EXPORTED_PUBLIC String
     /** Removes the whitespace from the end of the string. */
     void rstrip();
 
+    /** Remove the first N characters from the string. */
+    void ltrim(size_t n);
+
+    /** Remove the last N characters from the string. */
+    void rtrim(size_t n);
+
     /** Splits the string at the given offset - the front portion will be kept
      * in this string, the back portion (including the character at 'offset'
      * will be returned in a new string. */
@@ -154,7 +182,14 @@ class EXPORTED_PUBLIC String
 
     void Format(const char *format, ...) FORMAT(printf, 2, 3);
 
+    template<size_t N>
+    void assign(const char (&s)[N])
+    {
+        assign(s, N, true);
+    }
+
     void assign(const String &x);
+    void assign(const Cord &x);
     /** Assign a buffer to this string.
      * Optionally, unsafe can be passed which will completely trust the len
      * parameter. This may be useful for cases where the input string is not
@@ -163,7 +198,10 @@ class EXPORTED_PUBLIC String
      */
     void assign(const char *s, size_t len = 0, bool unsafe = false);
     void reserve(size_t size);
-    void free();
+    virtual void clear();
+
+    /** Resize the buffer to fit the actual string. */
+    void downsize();
 
     /** Does this string end with the given string? */
     bool endswith(const char c) const;
@@ -187,46 +225,84 @@ class EXPORTED_PUBLIC String
      */
     StringView view() const;
 
-  private:
+  protected:
+    /** Is the given character whitespace? (for *strip()) */
+    bool iswhitespace(const char c) const;
     /** Internal doer for reserve() */
     void reserve(size_t size, bool zero);
-    /** Extract the correct string buffer for this string. */
-    char *extract() const;
     /** Recompute internal hash. */
     void computeHash();
     /** Recompute internal hash but don't store it. */
     uint32_t computeHash() const;
+  private:
+    /** Extract hash without recomputing it. */
+    uint32_t maybeHash() const;
+    /** Extract the correct string buffer for this string. */
+    virtual char *extract() const;
     /** Move another string into this one. */
     void move(String &&other);
-    /** Size of static string storage (over this threshold, the heap is used) */
-    static constexpr const size_t StaticSize = 64;
     /** Pointer to the zero-terminated ASCII string */
     char *m_Data;
-    /** Pointer to a constant version of the string. */
-    const char *m_ConstData;
     /** The string's length */
     size_t m_Length;
     /** The size of the reserved space for the string */
     size_t m_Size;
-    /** Static string storage (avoid heap overhead for small strings) */
-    char m_Static[StaticSize];
-    /** Is m_Data heap allocated? Used for e.g. constexpr strings. */
-    bool m_HeapData;
-    /** Is the given character whitespace? (for *strip()) */
-    bool iswhitespace(const char c) const;
-
     /** Hash of the string. */
     uint32_t m_Hash;
+    /** Is this string resizable? */
+    virtual bool resizable() const;
+    /** Is this string assignable? */
+    virtual bool assignable() const;
+
+  protected:
+    /** Internal setter for length. */
+    void setLength(size_t n);
+    /** Internal setter for size. */
+    void setSize(size_t n);
 };
 
-#if STRING_WITH_CONSTEXPR_CONSTRUCTOR
+/** Class for immmutable strings with values known at compile time.
+ *
+ * \todo make String hashes more expressive so we can do a compile-time hash
+ * of these ConstantString objects and avoid the runtime computation.
+ */
 template <size_t N>
-constexpr String::String(const char (&s)[N])
-    : m_Data(nullptr), m_ConstData(s), m_Length(N ? N - 1 : 0), m_Size(N),
-      m_HeapData(false)
+class ConstantString : public String
 {
+    public:
+        ConstantString(const char str[N])
+        {
+            setLength(N);
+            setSize(N);
+            MemoryCopy(m_Data, str, N);
+            computeHash();
+        }
+
+        virtual void clear() override {}
+    private:
+        virtual char *extract() const override
+        {
+            return const_cast<char *>(m_Data);
+        }
+
+        virtual bool resizable() const override
+        {
+            return false;
+        }
+
+        virtual bool assignable() const override
+        {
+            return false;
+        }
+
+        char m_Data[N];
+};
+
+template <size_t N>
+ConstantString<N> MakeConstantString(const char (&str)[N])
+{
+    return ConstantString<N>(str);
 }
-#endif
 
 /** @} */
 

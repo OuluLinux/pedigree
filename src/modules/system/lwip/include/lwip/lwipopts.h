@@ -63,6 +63,8 @@
 #define LWIP_NETIF_LINK_CALLBACK 1
 #define LWIP_NETIF_HWADDRHINT 1
 
+#define LWIP_SO_RCVTIMEO 1
+
 // General tuning
 #define TCP_MSS 1400
 #define TCP_WND 32768
@@ -71,7 +73,7 @@
 #define LWIP_WND_SCALE 1
 #define TCP_RCV_SCALE 4
 
-#ifdef UTILITY_LINUX
+#if UTILITY_LINUX
 #define SA_FAMILY_T_DEFINED 1
 #endif
 

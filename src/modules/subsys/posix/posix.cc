@@ -74,10 +74,10 @@ static bool init()
         String path;
         File *target;
     } reparses[] = {
-        // {"root»/dev", g_pDevFs->getRoot()},
-        {"root»/var/run", g_pRunFilesystem->getRoot()},
-        {"root»/proc", g_pProcFs->getRoot()},
-        {"root»/tmp", scratchfs ? scratchfs->getRoot() : 0},
+        // {String("root»/dev"), g_pDevFs->getRoot()},
+        {String("root»/var/run"), g_pRunFilesystem->getRoot()},
+        {String("root»/proc"), g_pProcFs->getRoot()},
+        {String("root»/tmp"), scratchfs ? scratchfs->getRoot() : 0},
     };
 
     for (auto &p : reparses)
@@ -100,14 +100,19 @@ static bool init()
 
 static void destroy()
 {
-    VFS::instance().removeAllAliases(g_pProcFs);
-    VFS::instance().removeAllAliases(g_pDevFs);
-    VFS::instance().removeAllAliases(g_pUnixFilesystem);
-    VFS::instance().removeAllAliases(g_pRunFilesystem);
+    VFS::instance().removeAllAliases(g_pProcFs, false);
+    VFS::instance().removeAllAliases(g_pDevFs, false);
+    VFS::instance().removeAllAliases(g_pUnixFilesystem, false);
+    VFS::instance().removeAllAliases(g_pRunFilesystem, false);
+
+    delete g_pRunFilesystem;
+    delete g_pUnixFilesystem;
+    delete g_pProcFs;
+    delete g_pDevFs;
 }
 
-#ifdef ARM_COMMON
-MODULE_INFO("posix", &init, &destroy, "console", "mountroot");
+#if ARM_COMMON
+MODULE_INFO("posix", &init, &destroy, "console");
 #else
 MODULE_INFO(
     "posix", &init, &destroy, "console", "network-stack", "mountroot", "lwip");

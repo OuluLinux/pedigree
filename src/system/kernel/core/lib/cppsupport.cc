@@ -21,15 +21,29 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/compiler.h"
 #include "pedigree/kernel/core/SlamAllocator.h"
+#include "pedigree/kernel/machine/Trace.h"
 #include "pedigree/kernel/processor/types.h"
+#include "pedigree/kernel/processor/VirtualAddressSpace.h"
+#include "pedigree/kernel/utilities/MemoryTracing.h"
 #include "pedigree/kernel/utilities/utility.h"
 
 /// If the debug allocator is enabled, this switches it into underflow detection
 /// mode.
-#define DEBUG_ALLOCATOR_CHECK_UNDERFLOWS
+#define DEBUG_ALLOCATOR_CHECK_UNDERFLOWS 1
+
+#if HOSTED
+#define PEDIGREE_NOEXCEPT
+#else
+#define PEDIGREE_NOEXCEPT noexcept
+#endif
+
+// We need to use __builtin_frame_* with non-zero arguments in some cases here.
+#if __GNUC__ && !defined(__clang__)
+#pragma GCC diagnostic ignored "-Wframe-address"
+#endif
 
 // Required for G++ to link static init/destructors.
-#ifndef HOSTED
+#if !HOSTED
 extern "C" void *__dso_handle;
 #endif
 
@@ -60,38 +74,55 @@ void runKernelDestructors()
     uintptr_t *iterator = &start_kernel_dtors;
     while (iterator < &end_kernel_dtors)
     {
+        NOTICE("kernel dtor: " << reinterpret_cast<void *>(*iterator));
+        ++iterator;
+    }
+
+    iterator = &start_kernel_dtors;
+    while (iterator < &end_kernel_dtors)
+    {
         void (*fp)(void) = reinterpret_cast<void (*)(void)>(*iterator);
         fp();
         iterator++;
     }
 }
 
-#ifndef MEMORY_TRACING
-static bool traceAllocations = false;
-#endif
+/// Memory tracing defaults to being enabled if enabled in CMake
+static bool traceAllocations = MEMORY_TRACING;
 
-#ifdef MEMORY_TRACING
-static bool traceAllocations = true;
 void startTracingAllocations()
 {
-    traceAllocations = true;
+    if constexpr (MEMORY_TRACING)
+    {
+        traceAllocations = true;
+    }
 }
 
 void stopTracingAllocations()
 {
-    traceAllocations = false;
+    if constexpr (MEMORY_TRACING)
+    {
+        traceAllocations = false;
+    }
 }
 
 void toggleTracingAllocations()
 {
-    traceAllocations = !traceAllocations;
+    if constexpr (MEMORY_TRACING)
+    {
+        traceAllocations = !traceAllocations;
+    }
 }
-
-static volatile int g_TraceLock = 0;
 
 void traceAllocation(
     void *ptr, MemoryTracing::AllocationTrace type, size_t size)
 {
+    // Don't trace if the feature is completely disabled.
+    if constexpr (!MEMORY_TRACING)
+    {
+        return;
+    }
+
     // Don't trace if we're not allowed to.
     if (!traceAllocations)
         return;
@@ -166,51 +197,12 @@ void traceAllocation(
  */
 void traceMetadata(NormalStaticString str, void *p1, void *p2)
 {
-// this can be provided by scripts/addr2line.py these days
-#if 0
-    LockGuard<Spinlock> guard(traceLock);
-
-    // Yes, this means we'll lose early init mallocs. Oh well...
-    if(!Machine::instance().isInitialised())
-        return;
-
-    Serial *pSerial = Machine::instance().getSerial(1);
-    if(!pSerial)
-        return;
-
-    char buf[128];
-    ByteSet(buf, 0, 128);
-
-    size_t off = 0;
-
-    const MemoryTracing::AllocationTrace type = MemoryTracing::Metadata;
-
-    MemoryCopy(&buf[off], &type, 1);
-    ++off;
-    MemoryCopy(&buf[off], static_cast<const char *>(str), str.length());
-    off += 64; // Statically sized segment.
-    MemoryCopy(&buf[off], &p1, sizeof(void*));
-    off += sizeof(void*);
-    MemoryCopy(&buf[off], &p2, sizeof(void*));
-    off += sizeof(void*);
-
-    for(size_t i = 0; i < off; ++i)
-    {
-        pSerial->write(buf[i]);
-    }
-#endif
+    // Removed for now - this can be provided by scripts/addr2line.py now
 }
-#endif
-
-#ifdef ARM_COMMON
-#define ATEXIT __aeabi_atexit
-#else
-#define ATEXIT atexit
-#endif
 
 /// Required for G++ to compile code.
-extern "C" EXPORTED_PUBLIC void ATEXIT(void (*f)(void *), void *p, void *d);
-void ATEXIT(void (*f)(void *), void *p, void *d)
+extern "C" EXPORTED_PUBLIC void atexit(void (*f)(void *), void *p, void *d);
+void atexit(void (*f)(void *), void *p, void *d)
 {
 }
 
@@ -219,6 +211,14 @@ void ATEXIT(void (*f)(void *), void *p, void *d)
 extern "C" EXPORTED_PUBLIC void __cxa_pure_virtual() NORETURN;
 void __cxa_pure_virtual()
 {
+    /// \todo if FATAL etc don't work we need to still make this evident
+    TRACE("Pure virtual function call made");
+
+    EMIT_IF(HOSTED)
+    {
+        asm volatile("int $3");
+    }
+
     FATAL_NOLOCK("Pure virtual function call made");
 }
 
@@ -237,32 +237,45 @@ void __cxa_guard_release()
 }
 #endif
 
-#if !(defined(HOSTED) && defined(HOSTED_SYSTEM_MALLOC))
-#ifdef HOSTED
-#define MALLOC _malloc
-#define CALLOC _calloc
-#define FREE _free
-#define REALLOC _realloc
-#else
-#define MALLOC malloc
-#define CALLOC calloc
-#define FREE free
-#define REALLOC realloc
+#ifndef HOSTED_SYSTEM_MALLOC
+#define HOSTED_SYSTEM_MALLOC 0
 #endif
 
-extern "C" void *MALLOC(size_t sz)
+#if HOSTED
+
+#if HOSTED_SYSTEM_MALLOC
+// already using the system malloc so just define our versions as hosted_*
+#define INDIR_MALLOC hosted_malloc
+#define INDIR_CALLOC hosted_calloc 
+#define INDIR_FREE hosted_free
+#define INDIR_REALLOC hosted_realloc
+#else
+#define INDIR_MALLOC _malloc
+#define INDIR_CALLOC _calloc 
+#define INDIR_FREE _free
+#define INDIR_REALLOC _realloc
+#endif  // HOSTED_SYSTEM_MALLOC != 0
+
+#else
+#define INDIR_MALLOC malloc
+#define INDIR_CALLOC calloc
+#define INDIR_FREE free
+#define INDIR_REALLOC realloc
+#endif  // HOSTED
+
+extern "C" void *INDIR_MALLOC(size_t sz)
 {
     return reinterpret_cast<void *>(new uint8_t[sz]);
 }
 
-extern "C" void *CALLOC(size_t num, size_t sz)
+extern "C" void *INDIR_CALLOC(size_t num, size_t sz)
 {
     void *result = reinterpret_cast<void *>(new uint8_t[num * sz]);
     ByteSet(result, 0, num * sz);
     return result;
 }
 
-extern "C" void FREE(void *p)
+extern "C" void INDIR_FREE(void *p)
 {
     if (p == 0)
         return;
@@ -270,13 +283,13 @@ extern "C" void FREE(void *p)
     delete[] reinterpret_cast<uint8_t *>(p);
 }
 
-extern "C" void *REALLOC(void *p, size_t sz)
+extern "C" void *INDIR_REALLOC(void *p, size_t sz)
 {
     if (p == 0)
-        return MALLOC(sz);
+        return INDIR_MALLOC(sz);
     if (sz == 0)
     {
-        free(p);
+        INDIR_FREE(p);
         return 0;
     }
 
@@ -288,20 +301,26 @@ extern "C" void *REALLOC(void *p, size_t sz)
         copySz = sz;
 
     /// \note If sz > p's original size, this may fail.
-    void *tmp = MALLOC(sz);
+    void *tmp = INDIR_MALLOC(sz);
     MemoryCopy(tmp, p, copySz);
-    FREE(p);
+    INDIR_FREE(p);
 
     return tmp;
 }
 
-void *operator new(size_t size) noexcept
+#if !HOSTED_SYSTEM_MALLOC
+namespace std
+{
+    enum class align_val_t : size_t {};
+}
+
+void *operator new(size_t size) PEDIGREE_NOEXCEPT
 {
     void *ret =
         reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
     return ret;
 }
-void *operator new[](size_t size) noexcept
+void *operator new[](size_t size) PEDIGREE_NOEXCEPT
 {
     void *ret =
         reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
@@ -310,6 +329,13 @@ void *operator new[](size_t size) noexcept
 void *operator new(size_t size, void *memory) noexcept
 {
     return memory;
+}
+void *operator new(size_t size, std::align_val_t align)
+{
+    /// \todo manage alignment
+    void *ret =
+        reinterpret_cast<void *>(SlamAllocator::instance().allocate(size));
+    return ret;
 }
 void *operator new[](size_t size, void *memory) noexcept
 {
@@ -336,7 +362,7 @@ static void delete_shared(void *p) noexcept
         else
         {
             // less critical - still annoying
-            ERROR(
+            PEDANTRY(
                 "delete_shared failed as pointer was not in the kernel heap: "
                 << p);
         }
@@ -354,6 +380,14 @@ void operator delete(void *p, size_t sz) noexcept
 {
     delete_shared(p);
 }
+void operator delete(void* p, std::align_val_t align) noexcept
+{
+    delete_shared(p);
+}
+void operator delete(void* p, size_t sz, std::align_val_t align) noexcept
+{
+    delete_shared(p);
+}
 void operator delete[](void *p, size_t sz) noexcept
 {
     delete_shared(p);
@@ -366,25 +400,23 @@ void operator delete[](void *p, void *q) noexcept
 {
     // no-op
 }
+#endif  //!HOSTED_SYSTEM_MALLOC
 
-#ifdef HOSTED
+#if HOSTED && !HOSTED_SYSTEM_MALLOC
 extern "C" {
-
 void *__wrap_malloc(size_t sz)
 {
-    return _malloc(sz);
+    return INDIR_MALLOC(sz);
 }
 
 void *__wrap_realloc(void *p, size_t sz)
 {
-    return _realloc(p, sz);
+    return INDIR_REALLOC(p, sz);
 }
 
 void __wrap_free(void *p)
 {
-    return _free(p);
+    return INDIR_FREE(p);
 }
 }
-#endif
-
 #endif

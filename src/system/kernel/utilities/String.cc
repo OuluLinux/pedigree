@@ -19,16 +19,18 @@
 
 #include "pedigree/kernel/utilities/String.h"
 #include "pedigree/kernel/Log.h"
+#include "pedigree/kernel/utilities/Cord.h"
 #include "pedigree/kernel/utilities/StringView.h"
 #include "pedigree/kernel/utilities/assert.h"
 #include "pedigree/kernel/utilities/utility.h"
 #include <stdarg.h>
 
+/** Minimum size to remain allocated for a String, to avoid tiny heap allocations. */
+#define STRING_MINIMUM_ALLOCATION_SIZE 64UL
+
 String::String()
-    : m_Data(0), m_ConstData(nullptr), m_Length(0), m_Size(StaticSize),
-      m_HeapData(true), m_Hash(0)
+    : m_Data(nullptr), m_Length(0), m_Size(0), m_Hash(0)
 {
-    m_Static[0] = '\0';
 }
 
 String::String(const char *s) : String()
@@ -41,41 +43,50 @@ String::String(const char *s, size_t length) : String()
     assign(s, length);
 }
 
-#if !STRING_DISABLE_COPY_CONSTRUCTION
+String::String(const char *s, size_t length, bool unsafe) : String()
+{
+    assign(s, length, unsafe);
+}
+
 String::String(const String &x) : String()
 {
     assign(x);
 }
-#endif
 
-String::String(String &&x)
+String::String(const StringView &x) : String()
+{
+    assign(x.str(), x.length(), true);
+}
+
+String::String(String &&x) : String()
 {
     move(pedigree_std::move(x));
 }
 
+String::String(const Cord &x) : String()
+{
+    assign(x);
+}
+
 String::~String()
 {
-    free();
+    clear();
 }
 
 void String::move(String &&other)
 {
+    clear();
+
     // take ownership of the object
-    m_Data = pedigree_std::move(other.m_Data);
-    m_ConstData = pedigree_std::move(other.m_ConstData);
-    m_Length = pedigree_std::move(other.m_Length);
-    m_Size = pedigree_std::move(other.m_Size);
-    m_HeapData = pedigree_std::move(other.m_HeapData);
-    m_Hash = pedigree_std::move(other.m_Hash);
-    if (m_Size == StaticSize)
-    {
-        MemoryCopy(m_Static, other.m_Static, m_Length + 1);
-    }
+    m_Data = other.m_Data;
+    m_Length = other.m_Length;
+    m_Size = other.m_Size;
+    m_Hash = other.m_Hash;
 
     // free other string but don't destroy the heap pointer if we had one
     // as it is now owned by this new instance
     other.m_Data = 0;
-    other.free();
+    other.clear();
 }
 
 String &String::operator=(String &&x)
@@ -84,13 +95,13 @@ String &String::operator=(String &&x)
     return *this;
 }
 
-#if !STRING_DISABLE_COPY_CONSTRUCTION
 String &String::operator=(const String &x)
 {
     assign(x);
     return *this;
 }
 
+#if !STRING_DISABLE_EXPENSIVE_COPY_CONSTRUCTION
 String &String::operator=(const char *s)
 {
     assign(s);
@@ -98,34 +109,27 @@ String &String::operator=(const char *s)
 }
 #endif
 
+String &String::operator=(const Cord &x)
+{
+    assign(x);
+    return *this;
+}
+
 String &String::operator+=(const String &x)
 {
-    // Switch from const to dynamic string.
-    if (!m_HeapData)
-    {
-        assign(m_ConstData, m_Length);
-    }
+    assert(assignable());
 
     size_t newLength = x.length() + m_Length;
 
-    char *dst = m_Static;
+    reserve(newLength + 1);
 
-    // Do we need to transfer static into dynamic for this?
-    if (newLength >= StaticSize)
-    {
-        reserve(newLength + 1);
-        if (m_Length < StaticSize)
-            MemoryCopy(m_Data, m_Static, m_Length);
-        dst = m_Data;
-    }
-
-    const char *src = x.m_Static;
-    if (x.length() > StaticSize)
-        src = x.m_Data;
+    char *dst = extract();
+    const char *src = x.extract();
 
     // Copy!
     MemoryCopy(&dst[m_Length], src, x.length() + 1);
     m_Length += x.length();
+
     m_Hash = 0;  // hash is no longer valid
 #if STRING_DISABLE_JIT_HASHING
     computeHash();
@@ -135,30 +139,15 @@ String &String::operator+=(const String &x)
 
 String &String::operator+=(const char *s)
 {
-    // Switch from const to dynamic string.
-    if (!m_HeapData)
-    {
-        assign(m_ConstData, m_Length);
-    }
+    assert(assignable());
 
     size_t slen = StringLength(s);
     size_t newLength = slen + m_Length;
-    if (newLength < StaticSize)
-    {
-        // By the nature of the two lengths combined being below the static
-        // size, we can be assured that we can use the static buffer in
-        // both strings.
-        MemoryCopy(&m_Static[m_Length], s, slen + 1);
-    }
-    else
-    {
-        reserve(slen + m_Length + 1);
-        if (m_Length < StaticSize)
-            MemoryCopy(m_Data, m_Static, m_Length);
-        MemoryCopy(&m_Data[m_Length], s, slen + 1);
-    }
 
+    reserve(slen + m_Length + 1);
+    MemoryCopy(&m_Data[m_Length], s, slen + 1);
     m_Length += slen;
+
     m_Hash = 0;
 #if STRING_DISABLE_JIT_HASHING
     computeHash();
@@ -168,21 +157,30 @@ String &String::operator+=(const char *s)
 
 bool String::operator==(const String &s) const
 {
+    /// \note Even if the hashes don't exist yet, we still calculate them.
+    /// The hash functions are faster than StringMatch as they operate on
+    /// larger sections of the string at one time. The downside is that the
+    /// worst case performance for comparison is therefore comparing two
+    /// strings that do in fact match.
+
     if (m_Length != s.m_Length)
     {
         return false;
     }
-    else if (m_Hash && (m_Hash != s.hash()))
+    else if (LIKELY(m_Hash && s.maybeHash()))
     {
-        // precomputed hash didn't match, don't bother
-        return false;
+        if (m_Hash != s.hash())
+        {
+            // precomputed hash didn't match, don't bother
+            return false;
+        }
     }
 
     const char *buf = extract();
     const char *other_buf = s.extract();
 
     // Neither of these can be null because of the above conditions.
-    return !StringMatchN(buf, other_buf, m_Length + 1);
+    return !StringMatchN(buf, other_buf, m_Length);
 }
 
 bool String::operator==(const StringView &s) const
@@ -211,8 +209,34 @@ bool String::operator==(const char *s) const
     }
     else
     {
-        return StringMatchN(buf, s, m_Length + 1) == 0;
+        return !StringMatchN(buf, s, m_Length);
     }
+}
+
+bool String::compare(const char *s, size_t len) const
+{
+    if (m_Length != len)
+    {
+        // Mismatch in length
+        return false;
+    }
+    else if (UNLIKELY(s == 0))
+    {
+        // other buffer is null, don't match
+        return false;
+    }
+    else
+    {
+        const char *buf = extract();
+        return !StringMatchN(buf, s, m_Length);
+    }
+}
+
+char String::operator[](size_t i) const
+{
+    assert(i <= m_Length);
+    const char *buf = extract();
+    return buf[i];
 }
 
 uint32_t String::hash() const
@@ -235,6 +259,11 @@ uint32_t String::hash()
     return m_Hash;
 }
 
+uint32_t String::maybeHash() const
+{
+    return m_Hash;
+}
+
 size_t String::nextCharacter(size_t c) const
 {
     const char *buf = extract();
@@ -249,60 +278,81 @@ size_t String::prevCharacter(size_t c) const
 
 void String::assign(const String &x)
 {
-    m_Length = x.length();
-    if (m_Length < StaticSize)
+    assert(assignable());
+
+    if (extract() && x.extract())
     {
-        MemoryCopy(m_Static, x.m_Static, m_Length + 1);
-        if (m_HeapData)
-        {
-            delete[] m_Data;
-        }
-        m_Data = 0;
-        m_Size = StaticSize;
-    }
-    else
-    {
-        // Length is bigger than a static buffer, no need to check for empty
-        // buffer.
-        reserve(m_Length + 1, false);
-        MemoryCopy(m_Data, x.m_Data, m_Length + 1);
+        assert(extract() != x.extract());
     }
 
-    m_HeapData = true;
-    // m_ConstData = nullptr;
+    reserve(x.size(), false);
+    MemoryCopy(m_Data, x.extract(), x.size());
+    m_Length = x.length();
 
     // no need to recompute in this case
     m_Hash = x.m_Hash;
 
-#ifdef ADDITIONAL_CHECKS
+#if ADDITIONAL_CHECKS
     if (*this != x)
     {
         ERROR("mismatch: '" << *this << "' != '" << x << "'");
-        if (m_ConstData)
-        {
-            ERROR("const data was " << m_ConstData);
-        }
     }
     assert(*this == x);
 #endif
 }
 
+void String::assign(const Cord &x)
+{
+    assert(assignable());
+
+    reserve(x.length() + 1);
+
+    size_t offset = 0;
+    char *buf = extract();
+    for (auto &it : x.m_Segments)
+    {
+        StringCopyN(buf + offset, it.ptr, it.length);
+        offset += it.length;
+    }
+    buf[offset] = 0;
+
+    m_Length = offset;
+
+    m_Hash = 0;
+#if STRING_DISABLE_JIT_HASHING
+    computeHash();
+#endif
+}
+
 void String::assign(const char *s, size_t len, bool unsafe)
 {
+    assert(assignable());
+
+    // Trying to assign self to self?
+    assert((m_Data == nullptr) || (m_Data && (m_Data != s)));
+
     size_t copyLength = 0;
+    size_t origLength = len;
     // len overrides all other optimizations
     if (len)
     {
         // Fix up length if the passed string is much smaller than the 'len'
         // parameter (otherwise we think we have a giant string).
-        if (!unsafe)
+        size_t trueLength = 0;
+        if (unsafe)
         {
-            size_t trueLength = StringLength(s);
-            if (trueLength < len)
-            {
-                len = trueLength;
-            }
+            trueLength = BoundedStringLength(s, len);
         }
+        else
+        {
+            trueLength = StringLength(s);
+        }
+
+        if (trueLength < len)
+        {
+            len = trueLength;
+        }
+
         m_Length = len;
         copyLength = len;
     }
@@ -318,36 +368,18 @@ void String::assign(const char *s, size_t len, bool unsafe)
 
     if (!m_Length)
     {
-        ByteSet(m_Static, 0, StaticSize);
-        if (m_HeapData)
-        {
-            delete[] m_Data;
-        }
+        delete [] m_Data;
         m_Data = 0;
-        m_Size = StaticSize;
-    }
-    else if (m_Length < StaticSize)
-    {
-        MemoryCopy(m_Static, s, copyLength);
-        if (m_HeapData)
-        {
-            delete[] m_Data;
-        }
-        m_Data = 0;
-        m_Size = StaticSize;
-        m_Static[copyLength] = '\0';
+        m_Size = 0;
     }
     else
     {
-        reserve(m_Length + 1, false);
+        reserve(copyLength + 1, false);
         MemoryCopy(m_Data, s, copyLength);
         m_Data[copyLength] = '\0';
     }
 
-    m_HeapData = true;
-    m_ConstData = nullptr;
-
-#ifdef ADDITIONAL_CHECKS
+#if ADDITIONAL_CHECKS
     if (!len)
     {
         assert(*this == s);
@@ -367,33 +399,18 @@ void String::reserve(size_t size)
 
 void String::reserve(size_t size, bool zero)
 {
-    // Don't reserve if we're a static string.
-    if (size <= StaticSize)
-    {
-        if (m_Size > StaticSize)
-        {
-            m_Size = StaticSize;
-            MemoryCopy(m_Static, m_Data, size);
-            if (m_HeapData)
-            {
-                delete[] m_Data;
-            }
-            m_Data = 0;
-        }
+    assert(resizable());
 
-        return;
-    }
-    else if (size > m_Size)
+    size = pedigree_std::max(size, STRING_MINIMUM_ALLOCATION_SIZE);
+
+    if (size > m_Size)
     {
         char *tmp = m_Data;
         m_Data = new char[size];
         if (tmp)
         {
             MemoryCopy(m_Data, tmp, m_Size > size ? size : m_Size);
-            if (m_HeapData)
-            {
-                delete[] tmp;
-            }
+            delete[] tmp;
         }
         else if (zero)
         {
@@ -402,17 +419,64 @@ void String::reserve(size_t size, bool zero)
         m_Size = size;
     }
 }
-void String::free()
+
+void String::downsize()
 {
-    if (m_HeapData && m_Data)
+    assert(resizable());
+
+    size_t newSize = pedigree_std::max(m_Length + 1, STRING_MINIMUM_ALLOCATION_SIZE);
+
+    char *oldData = m_Data;
+
+    m_Data = new char[newSize];
+    MemoryCopy(m_Data, oldData, newSize);
+
+    delete [] oldData;
+
+    m_Size = newSize;
+}
+
+void String::clear()
+{
+    assert(assignable());
+
+    if (m_Data)
     {
         delete[] m_Data;
     }
-    m_Static[0] = '\0';  /// \note free does not clear old static data
     m_Data = 0;
     m_Length = 0;
     m_Size = 0;
     m_Hash = 0;
+}
+
+void String::ltrim(size_t n)
+{
+    assert(assignable());
+
+    if (n > m_Length)
+    {
+        clear();
+        return;
+    }
+
+    MemoryCopy(m_Data, &m_Data[n], m_Length - n);
+    m_Length -= n;
+    m_Data[m_Length] = 0;
+}
+
+void String::rtrim(size_t n)
+{
+    assert(assignable());
+
+    if (n > m_Length)
+    {
+        clear();
+        return;
+    }
+
+    m_Data[m_Length - n] = 0;
+    m_Length -= n;
 }
 
 String String::split(size_t offset)
@@ -424,31 +488,18 @@ String String::split(size_t offset)
 
 void String::split(size_t offset, String &back)
 {
+    assert(assignable());
+
     if (offset >= m_Length)
     {
-        back.free();
+        back.clear();
         return;
     }
 
     char *buf = extract();
 
-    back.assign(&buf[offset]);
+    back.assign(&buf[offset], m_Length - offset, true);
     m_Length = offset;
-
-    // Handle the case where the split causes our string to suddenly be shorter
-    // than the static size.
-    if ((m_Length < StaticSize) && (buf == m_Data))
-    {
-        MemoryCopy(m_Static, buf, m_Length);
-        buf = m_Static;
-        if (m_HeapData)
-        {
-            delete[] m_Data;
-        }
-        m_Data = 0;
-        m_Size = StaticSize;
-    }
-
     buf[m_Length] = 0;
 
     m_Hash = 0;
@@ -459,13 +510,22 @@ void String::split(size_t offset, String &back)
 
 void String::strip()
 {
+    assert(assignable());
+
     lstrip();
     rstrip();
 }
 
 void String::lstrip()
 {
+    assert(assignable());
+
     char *buf = extract();
+    if (!buf)
+    {
+        // nothing to strip
+        return;
+    }
 
     if (!iswhitespace(buf[0]))
         return;
@@ -480,18 +540,6 @@ void String::lstrip()
     MemoryCopy(buf, (buf + n), m_Length);
     buf[m_Length] = 0;
 
-    // Did we suddenly drop below the static size?
-    if ((buf == m_Data) && (m_Length < StaticSize))
-    {
-        MemoryCopy(m_Static, m_Data, m_Length + 1);
-        m_Size = StaticSize;
-        if (m_HeapData)
-        {
-            delete[] m_Data;
-        }
-        m_Data = 0;
-    }
-
     m_Hash = 0;
 #if STRING_DISABLE_JIT_HASHING
     computeHash();
@@ -500,7 +548,14 @@ void String::lstrip()
 
 void String::rstrip()
 {
+    assert(assignable());
+
     char *buf = extract();
+    if (!buf)
+    {
+        // nothing to strip
+        return;
+    }
 
     if (!iswhitespace(buf[m_Length - 1]))
         return;
@@ -514,18 +569,6 @@ void String::rstrip()
     // not reallocated.
     m_Length = n;
     buf[m_Length] = 0;
-
-    // Did we suddenly drop below the static size?
-    if ((buf == m_Data) && (m_Length < StaticSize))
-    {
-        MemoryCopy(m_Static, m_Data, m_Length + 1);
-        m_Size = StaticSize;
-        if (m_HeapData)
-        {
-            delete[] m_Data;
-        }
-        m_Data = 0;
-    }
 
     m_Hash = 0;
 #if STRING_DISABLE_JIT_HASHING
@@ -582,6 +625,8 @@ void String::tokenise(char token, Vector<StringView> &output) const
     const char *buffer = orig_buffer;
 
     output.clear();
+    // reserve for the worst-case, where we tokenise every character of this string
+    // output.reserve(m_Length, false);
 
     const char *pos = buffer ? StringFind(buffer, token) : nullptr;
     while (pos && (*buffer))
@@ -594,7 +639,7 @@ void String::tokenise(char token, Vector<StringView> &output) const
 
         if (pos > buffer)
         {
-            output.pushBack(StringView(buffer, pos - buffer));
+            output.createBack(buffer, pos - buffer);
         }
 
         buffer = pos + 1;
@@ -607,14 +652,14 @@ void String::tokenise(char token, Vector<StringView> &output) const
         // might be able to just copy this string rather than copy & move
         if (buffer == orig_buffer)
         {
-            output.pushBack(view());
+            output.createBack(view());
         }
         else
         {
             size_t length = m_Length - (buffer - orig_buffer);
             if (length)
             {
-                output.pushBack(StringView(buffer, length));
+                output.createBack(buffer, length);
             }
         }
     }
@@ -626,30 +671,21 @@ void String::tokenise(char token, Vector<String> &output) const
     tokenise(token, views);
 
     output.clear();
+    output.reserve(views.count(), false);
     for (auto &it : views)
     {
-        output.pushBack(it.toString());
+        output.createBack(it);
     }
 }
 
 void String::lchomp()
 {
+    assert(assignable());
+
     char *buf = extract();
 
     StringCopy(buf, &buf[1]);
     --m_Length;
-
-    // Did we suddenly drop below the static size?
-    if ((buf == m_Data) && (m_Length < StaticSize))
-    {
-        MemoryCopy(m_Static, m_Data, m_Length + 1);
-        m_Size = StaticSize;
-        if (m_HeapData)
-        {
-            delete[] m_Data;
-        }
-        m_Data = 0;
-    }
 
     m_Hash = 0;
 #if STRING_DISABLE_JIT_HASHING
@@ -659,22 +695,12 @@ void String::lchomp()
 
 void String::chomp()
 {
+    assert(assignable());
+
     char *buf = extract();
 
     m_Length--;
     buf[m_Length] = '\0';
-
-    // Did we suddenly drop below the static size?
-    if ((buf == m_Data) && (m_Length < StaticSize))
-    {
-        MemoryCopy(m_Static, m_Data, m_Length + 1);
-        m_Size = StaticSize;
-        if (m_HeapData)
-        {
-            delete[] m_Data;
-        }
-        m_Data = 0;
-    }
 
     m_Hash = 0;
 #if STRING_DISABLE_JIT_HASHING
@@ -684,22 +710,13 @@ void String::chomp()
 
 void String::Format(const char *fmt, ...)
 {
+    assert(assignable());
+
     reserve(256);
     va_list vl;
     va_start(vl, fmt);
     m_Length = VStringFormat(m_Data, fmt, vl);
     va_end(vl);
-
-    if (m_Length < StaticSize)
-    {
-        MemoryCopy(m_Static, m_Data, m_Length + 1);
-        m_Size = StaticSize;
-        if (m_HeapData)
-        {
-            delete[] m_Data;
-        }
-        m_Data = 0;
-    }
 
     m_Hash = 0;
 #if STRING_DISABLE_JIT_HASHING
@@ -790,21 +807,7 @@ bool String::iswhitespace(const char c) const
 
 char *String::extract() const
 {
-    if (!m_HeapData)
-    {
-        return const_cast<char *>(m_ConstData);
-    }
-
-    if (m_Length < StaticSize)
-    {
-        // const_cast because we don't have a side effect but need to return
-        // a pointer to our object regardless
-        return const_cast<char *>(m_Static);
-    }
-    else
-    {
-        return m_Data;
-    }
+    return m_Data;
 }
 
 ssize_t String::find(const char c) const
@@ -874,11 +877,33 @@ String String::copy() const
 {
     String result;
     result.assign(*this);
-    return pedigree_std::move(result);
+    return result;
 }
 
 StringView String::view() const
 {
     // hash already calculated, enable hashing
-    return StringView(extract(), m_Length, m_Hash, true);
+    const char *buf = extract();
+    assert(buf);
+    return StringView(buf, m_Length, m_Hash, true);
+}
+
+bool String::resizable() const
+{
+    return true;
+}
+
+bool String::assignable() const
+{
+    return true;
+}
+
+void String::setLength(size_t n)
+{
+    m_Length = n;
+}
+
+void String::setSize(size_t n)
+{
+    m_Size = n;
 }

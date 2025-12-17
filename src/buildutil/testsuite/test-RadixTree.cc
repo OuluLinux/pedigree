@@ -26,7 +26,7 @@
 TEST(PedigreeRadixTree, Construction)
 {
     RadixTree<int> x;
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
     EXPECT_EQ(x.begin(), x.end());
 }
 
@@ -95,7 +95,7 @@ TEST(PedigreeRadixTree, Clear)
     x.insert(String("foo"), 1);
     x.insert(String("bar"), 2);
     x.clear();
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeRadixTree, EmptyLookup)
@@ -109,14 +109,14 @@ TEST(PedigreeRadixTree, EmptyRemove)
 {
     RadixTree<int> x;
     x.remove(String("foo"));
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeRadixTree, EmptyKeyRemove)
 {
     RadixTree<int> x;
     x.remove(String());
-    EXPECT_EQ(x.count(), 0);
+    EXPECT_EQ(x.count(), 0U);
 }
 
 TEST(PedigreeRadixTree, PartialMatchMiss)
@@ -134,7 +134,7 @@ TEST(PedigreeRadixTree, Removal)
     x.insert(String("foo"), 1);
     x.insert(String("bar"), 2);
     x.remove(String("foo"));
-    EXPECT_EQ(x.count(), 1);
+    EXPECT_EQ(x.count(), 1U);
 
     RadixTree<int>::LookupType result = x.lookup(String("foo"));
     EXPECT_TRUE(result.hasError());
@@ -152,12 +152,42 @@ TEST(PedigreeRadixTree, RemovalBigRoot)
     x.insert(String("fooqux"), 4);
     x.insert(String("fooabc"), 5);
     x.remove(String("foo"));
-    EXPECT_EQ(x.count(), 4);
+    EXPECT_EQ(x.count(), 4U);
 }
 
 TEST(PedigreeRadixTree, Prefixes)
 {
     RadixTree<int> x;
+    x.insert(String("toast"), 1);
+    x.insert(String("toasted"), 2);
+    x.insert(String("toaster"), 3);
+    x.insert(String("toasting"), 4);
+    x.insert(String("toastier"), 5);
+
+    RadixTree<int>::LookupType result = x.lookup(String("toast"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 1);
+
+    result = x.lookup(String("toasted"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 2);
+
+    result = x.lookup(String("toaster"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 3);
+
+    result = x.lookup(String("toasting"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 4);
+
+    result = x.lookup(String("toastier"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 5);
+}
+
+TEST(PedigreeRadixTree, PrefixesCaseInsensitive)
+{
+    RadixTree<int> x(false);
     x.insert(String("toast"), 1);
     x.insert(String("toasted"), 2);
     x.insert(String("toaster"), 3);
@@ -313,7 +343,7 @@ TEST(PedigreeRadixTree, Erase)
     EXPECT_EQ(*it++, 2);
     it = x.erase(it);
     EXPECT_EQ(*it++, 4);
-    EXPECT_EQ(x.count(), 3);
+    EXPECT_EQ(x.count(), 3U);
 }
 
 TEST(PedigreeRadixTree, SplitThis)
@@ -375,4 +405,27 @@ TEST(PedigreeRadixTree, LibrariesIssue)
     // this should not as 'lib' hasn't been created yet
     result = x.lookup(String("lib"));
     EXPECT_TRUE(result.hasError());
+}
+
+TEST(PedigreeRadixTree, hmm)
+{
+    String foo("foo");
+    String bar("bar");
+
+    RadixTree<int> x;
+
+    x.insert(foo, 1);
+    x.insert(bar, 2);
+    x.clear();
+
+    x.insert(foo, 3);
+    x.insert(bar, 4);
+
+    RadixTree<int>::LookupType result = x.lookup(String("foo"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 3);
+
+    result = x.lookup(String("bar"));
+    EXPECT_FALSE(result.hasError());
+    EXPECT_EQ(result.value(), 4);
 }

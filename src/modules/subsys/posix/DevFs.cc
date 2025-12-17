@@ -20,6 +20,7 @@
 #include "DevFs.h"
 
 #include "modules/system/vfs/Pipe.h"
+#include "modules/system/vfs/VFS.h"
 
 #define MACHINE_FORWARD_DECL_ONLY
 #include "pedigree/kernel/machine/Display.h"
@@ -37,7 +38,8 @@
 
 #include "pedigree/kernel/utilities/utility.h"
 
-#include <sys/fb.h>
+// <sys/fb.h> in userspace
+#include "musl/fb.h"
 
 /// \todo these come from somewhere - expose them properly
 #define ALT_KEY (1ULL << 60)
@@ -131,7 +133,6 @@ PtmxFile::PtmxFile(
 
 PtmxFile::~PtmxFile()
 {
-    delete m_pPtsDirectory;
 }
 
 uint64_t PtmxFile::readBytewise(
@@ -482,10 +483,17 @@ DevFs::~DevFs()
 {
     InputManager::instance().removeCallback(terminalSwitchHandler, this);
 
-    delete m_pPsAuxFile;
+    EMIT_IF(X86_COMMON)
+    {
+        delete m_pPsAuxFile;
+    }
     delete m_VtManager;
     delete m_pTty;
-    delete m_pRoot;
+    m_pRoot->emptyCache();
+    if (!VFS::instance().untrackFile(m_pRoot))
+    {
+        ERROR("DevFs: root directory did not get cleaned up");
+    }
 }
 
 bool DevFs::initialise(Disk *pDisk)
@@ -505,6 +513,8 @@ bool DevFs::initialise(Disk *pDisk)
     m_pRoot->setPermissions(
         FILE_UR | FILE_UW | FILE_UX | FILE_GR | FILE_GW | FILE_GX | FILE_OR |
         FILE_OX);
+
+    VFS::instance().trackFile(m_pRoot);
 
     // Create /dev/null and /dev/zero nodes
     NullFile *pNull =
@@ -649,16 +659,19 @@ bool DevFs::initialise(Disk *pDisk)
     RtcFile *rtc = new RtcFile(getNextInode(), this, m_pRoot);
     m_pRoot->addEntry(rtc->getName(), rtc);
 
-    PsAuxFile *pPsAux =
-        new PsAuxFile(String("psaux"), getNextInode(), this, m_pRoot);
-    if (pPsAux->initialise())
+    EMIT_IF(X86_COMMON)
     {
-        m_pRoot->addEntry(pPsAux->getName(), pPsAux);
-        m_pPsAuxFile = pPsAux;
-    }
-    else
-    {
-        delete pPsAux;
+        PsAuxFile *pPsAux =
+            new PsAuxFile(String("psaux"), getNextInode(), this, m_pRoot);
+        if (pPsAux->initialise())
+        {
+            m_pRoot->addEntry(pPsAux->getName(), pPsAux);
+            m_pPsAuxFile = pPsAux;
+        }
+        else
+        {
+            delete pPsAux;
+        }
     }
 
     // add input handler for terminal switching

@@ -5,8 +5,8 @@ matrix:
   include:
   - os: linux
     env: OS=ubuntu EASY_BUILD=x64
-  #- os: linux
-  #  env: OS=ubuntu EASY_BUILD=arm
+  - os: linux
+    env: OS=ubuntu EASY_BUILD=arm
   # - os: linux
   #   env: OS=ubuntu EASY_BUILD=hosted
   - os: linux
@@ -23,6 +23,7 @@ script:
   - if [[ "$EASY_BUILD" == "tests" ]]; then ./tests/testsuite.sh; fi
   - if [[ "$EASY_BUILD" != "tests" ]]; then ./scripts/runtest.py; fi
 before_install:
+  - CC=gcc-8 && CXX=g++-8
   - if [[ "$TRAVIS_OS_NAME" == "osx" ]]; then brew install qemu; fi
   - if [[ "$EASY_BUILD" == "tests" ]]; then pip install --user codecov gcovr; fi
 after_success:
@@ -58,8 +59,8 @@ addons:
       - u-boot-tools
       - valgrind
       - python-requests
-      - g++-6
-      - libstdc++-6-dev
+      - g++-8
+      - libstdc++-8-dev
       - lcov
       - doxygen
       - doxygen-doc

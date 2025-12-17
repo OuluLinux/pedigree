@@ -23,6 +23,12 @@
 #include "pedigree/kernel/Log.h"
 #include "pedigree/kernel/processor/MemoryRegion.h"
 #include "pedigree/kernel/processor/Processor.h"
+#include "pedigree/kernel/panic.h"
+
+extern char kernel_start, kernel_end;
+
+EXPORTED_PUBLIC size_t g_FreePages = 0;
+EXPORTED_PUBLIC size_t g_AllocedPages = 0;
 
 ArmV7PhysicalMemoryManager ArmV7PhysicalMemoryManager::m_Instance;
 
@@ -31,8 +37,10 @@ PhysicalMemoryManager &PhysicalMemoryManager::instance()
     return ArmV7PhysicalMemoryManager::instance();
 }
 
-physical_uintptr_t ArmV7PhysicalMemoryManager::allocatePage()
+physical_uintptr_t ArmV7PhysicalMemoryManager::allocatePage(size_t pageConstraints)
 {
+    /// \todo do we need to care about pageConstraints at all?
+
     LockGuard<Spinlock> guard(m_Lock);
 
     /// \todo Cache compact if needed
@@ -66,7 +74,7 @@ bool ArmV7PhysicalMemoryManager::allocateRegion(
             panic("PhysicalMemoryManager::allocateRegion(): function misused");
 
 // Remove the memory from the range-lists (if desired/possible)
-#ifdef ARM_BEAGLE  // Beagleboard RAM locations
+#if ARM_BEAGLE  // Beagleboard RAM locations
         if ((start < 0x80000000) || (start >= 0x90000000))
         {
             if (!m_NonRAMRanges.allocateSpecific(start, cPages * getPageSize()))
@@ -193,13 +201,12 @@ void ArmV7PhysicalMemoryManager::unmapRegion(MemoryRegion *pRegion)
 {
 }
 
-extern char __start, __end;
 void ArmV7PhysicalMemoryManager::initialise(const BootstrapStruct_t &info)
 {
 // Define beginning and end ranges of usable RAM
-#ifdef ARM_BEAGLE
+#if ARM_BEAGLE
     physical_uintptr_t addr = 0;
-    for (addr = reinterpret_cast<physical_uintptr_t>(&__end); addr < 0x87000000;
+    for (addr = reinterpret_cast<physical_uintptr_t>(&kernel_end); addr < 0x87000000;
          addr += 0x1000)
     {
         m_PageStack.free(addr);
@@ -209,8 +216,8 @@ void ArmV7PhysicalMemoryManager::initialise(const BootstrapStruct_t &info)
         m_PageStack.free(addr);
     }
 
-    size_t kernelSize = reinterpret_cast<physical_uintptr_t>(&__end) -
-                        reinterpret_cast<physical_uintptr_t>(&__start);
+    size_t kernelSize = reinterpret_cast<physical_uintptr_t>(&kernel_end) -
+                        reinterpret_cast<physical_uintptr_t>(&kernel_start);
     if (kernelSize % 4096)
     {
         kernelSize += 0x1000;
@@ -219,7 +226,7 @@ void ArmV7PhysicalMemoryManager::initialise(const BootstrapStruct_t &info)
 
     m_PhysicalRanges.free(0x80000000 + kernelSize, 0xF000000);
     m_PhysicalRanges.allocateSpecific(
-        0x80000000, reinterpret_cast<physical_uintptr_t>(&__end) - 0x80000000);
+        0x80000000, reinterpret_cast<physical_uintptr_t>(&kernel_end) - 0x80000000);
     m_PhysicalRanges.allocateSpecific(0x87000000, 0x1000000);
 
     m_NonRAMRanges.free(0, 0x80000000);
@@ -253,6 +260,12 @@ ArmV7PhysicalMemoryManager::PageStack::allocate(size_t constraints)
             *(reinterpret_cast<uint32_t *>(m_Stack) +
               m_StackSize / sizeof(physical_uintptr_t));
     }
+
+    ++g_AllocedPages;
+    if (g_FreePages)
+    {
+        --g_FreePages;
+    }
     return ret;
 }
 
@@ -260,7 +273,7 @@ void ArmV7PhysicalMemoryManager::PageStack::free(
     physical_uintptr_t physicalAddress)
 {
 // Input verification (machine-specific)
-#ifdef ARM_BEAGLE
+#if ARM_BEAGLE
     if (physicalAddress < 0x80000000)
         return;
     else if (physicalAddress >= 0x90000000)
@@ -288,6 +301,12 @@ void ArmV7PhysicalMemoryManager::PageStack::free(
     *(reinterpret_cast<physical_uintptr_t *>(m_Stack) +
       (m_StackSize / sizeof(physical_uintptr_t))) = physicalAddress;
     m_StackSize += sizeof(physical_uintptr_t);
+
+    ++g_FreePages;
+    if (g_AllocedPages)
+    {
+        --g_AllocedPages;
+    }
 }
 
 ArmV7PhysicalMemoryManager::PageStack::PageStack()

@@ -58,8 +58,8 @@ static Device *checkNode(Device *pDev)
         {
             String name;
             pDev->getChild(i)->getName(name);
-            if (!StringCompare(name, "msdos-partition") ||
-                !StringCompare(name, "apple-partition"))
+            if (!StringCompare(name.cstr(), "msdos-partition") ||
+                !StringCompare(name.cstr(), "apple-partition"))
             {
                 hasPartitions = true;
                 break;
@@ -116,9 +116,9 @@ static void exit()
     delete pFeatures;
 }
 
-#if defined(ARM_COMMON)  // No ATA controller
+#if ARM_COMMON  // No ATA controller
 MODULE_INFO("partition", &entry, &exit);
-#elif defined(HOSTED)
+#elif HOSTED
 MODULE_INFO("partition", &entry, &exit, "diskimage");
 #else
 MODULE_INFO("partition", &entry, &exit, "ata");

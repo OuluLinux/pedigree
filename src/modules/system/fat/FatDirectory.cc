@@ -82,7 +82,7 @@ bool FatDirectory::addEntry(String filename, File *pFile, size_t type)
 {
     FatFilesystem *pFs = static_cast<FatFilesystem *>(m_pFilesystem);
 
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
     NOTICE("FatDirectory::addEntry(" << filename << ")");
 #endif
     LockGuard<Mutex> guard(m_Lock);
@@ -278,7 +278,7 @@ bool FatDirectory::addEntry(String filename, File *pFile, size_t type)
             if (isCachePopulated())
                 addDirectoryEntry(pFile->getName(), pFile);
 
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
             NOTICE(
                 "  -> FatFilesystem::addEntry(" << filename
                                                 << ") is successful");
@@ -287,10 +287,12 @@ bool FatDirectory::addEntry(String filename, File *pFile, size_t type)
             return true;
         }
     }
-#ifdef SUPERDEBUG
+#if SUPERDEBUG
     NOTICE(
         "  -> FatFilesystem::addEntry(" << filename << ") is not successful");
 #endif
+
+    return false;
 }
 
 bool FatDirectory::removeEntry(File *pFile)
@@ -487,9 +489,10 @@ void FatDirectory::cacheDirectoryContents()
                     ent->DIR_FstClusLO | (ent->DIR_FstClusHI << 16);
                 String filename;
                 if (nextIsEnd)
-                    filename = static_cast<const char *>(
-                        longFileName);  // use the long filename rather than the
-                                        // short one
+                {
+                    // use the long filename rather than the short one
+                    filename.assign(longFileName);
+                }
                 else
                 {
                     // WARNING("FAT: Using short filename rather than long

@@ -182,6 +182,14 @@ static void printString(const char *str, size_t len=0)
     }
 }
 
+static void printString(const LogCord &str)
+{
+    for (auto it = str.segbegin(); it != str.segend(); ++it)
+    {
+        printString(it.ptr(), it.length());
+    }
+}
+
 static void printStringAt(const char *str, size_t x, size_t y)
 {
     /// \todo Handle overflows
@@ -210,15 +218,23 @@ class StreamingScreenLogger : public Log::LogCallback
 
     /// printString is used directly as well as in this callback object,
     /// therefore we simply redirect to it.
-    void callback(const LogCord &cord)
+    void callback(const LogCord &cord, bool locked = true)
     {
-#ifdef DEBUGGER
-        if (g_LogMode)
+        EMIT_IF(DEBUGGER)
         {
-            LockGuard<Mutex> guard(g_PrintLock);
-            printString(cord.toString(), cord.length());
+            if (g_LogMode)
+            {
+                if (locked)
+                {
+                    g_PrintLock.acquire();
+                }
+                printString(cord);
+                if (locked)
+                {
+                    g_PrintLock.release();
+                }
+            }
         }
-#endif
     }
 };
 
@@ -266,12 +282,13 @@ static void progress(const char *text)
     {
         Log::instance().removeCallback(&g_StreamLogger);
 
-#ifdef DEBUGGER
-        if (!g_NoGraphics)
+        EMIT_IF(DEBUGGER)
         {
-            InputManager::instance().removeCallback(keyCallback);
+            if (!g_NoGraphics)
+            {
+                InputManager::instance().removeCallback(keyCallback);
+            }
         }
-#endif
 
         bFinished = true;
     }
@@ -587,8 +604,7 @@ static bool handleSplash()
                         (fontRow * bytesPerLine) + (col * bytesPerPixel);
                     size_t bufferOffset = pixelOffset;
 
-                    uint32_t *p = reinterpret_cast<uint32_t *>(
-                        adjust_pointer(g_pBuffer, bufferOffset));
+                    uint32_t *p = adjust_pointer<uint8_t, uint32_t>(g_pBuffer, bufferOffset);
                     *p = g_ForegroundColour;
                 }
             }
@@ -614,16 +630,17 @@ static bool handleSplash()
         "Please wait, Pedigree is loading...", g_Width / 2,
         g_ProgressY - (FONT_HEIGHT * 3));
 
-#ifdef DEBUGGER
-    // Draw a border around the log area
-    centerStringAt(
-        "< Kernel Log >", g_LogW / 2,
-        g_LogBoxY - 2 - (FONT_HEIGHT / 2) - FONT_HEIGHT);
-    centerStringAt(
-        "(you can push ESCAPE to view the kernel log, and again to make the "
-        "log fill the screen)",
-        g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2));
-#endif
+    EMIT_IF(DEBUGGER)
+    {
+        // Draw a border around the log area
+        centerStringAt(
+            "< Kernel Log >", g_LogW / 2,
+            g_LogBoxY - 2 - (FONT_HEIGHT / 2) - FONT_HEIGHT);
+        centerStringAt(
+            "(you can push ESCAPE to view the kernel log, and again to make the "
+            "log fill the screen)",
+            g_LogW / 2, g_LogBoxY - 2 - (FONT_HEIGHT / 2));
+    }
 
     // Draw empty progress bar. Easiest way to draw a nonfilled rect? Draw two
     // filled rects.
@@ -640,9 +657,10 @@ static bool handleSplash()
 
     g_BootProgressUpdate = &progress;
 
-#ifdef DEBUGGER
-    InputManager::instance().installCallback(InputManager::Key, keyCallback);
-#endif
+    EMIT_IF(DEBUGGER)
+    {
+        InputManager::instance().installCallback(InputManager::Key, keyCallback);
+    }
 
     return true;
 }
@@ -683,12 +701,13 @@ static void destroy()
 
     Log::instance().removeCallback(&g_StreamLogger);
 
-#ifdef DEBUGGER
-    if (!g_NoGraphics)
+    EMIT_IF(DEBUGGER)
     {
-        InputManager::instance().removeCallback(keyCallback);
+        if (!g_NoGraphics)
+        {
+            InputManager::instance().removeCallback(keyCallback);
+        }
     }
-#endif
 
     g_BootProgressUpdate = 0;
 }

@@ -17,7 +17,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifdef X86_COMMON
+#if X86_COMMON
 
 #ifndef UHCI_H
 #define UHCI_H
@@ -145,7 +145,7 @@ class Uhci : public UsbHub,
 
     virtual void getName(String &str)
     {
-        str = "UHCI";
+        str.assign("UHCI", 5);
     }
 
     virtual void addTransferToTransaction(

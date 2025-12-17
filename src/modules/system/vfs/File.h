@@ -142,11 +142,14 @@ class EXPORTED_PUBLIC File
     void setModifiedTime(Time::Timestamp t);
 
     /** Returns the name of the file. */
-    String getName() const;
+    const String &getName() const;
     void getName(String &s) const;
     // File names cannot be changed.
 
     /** Obtains the full path of the File. */
+    virtual void getFullPath(String &result, bool bWithLabel = true);
+
+    /** Obtains the full path of the File and returns it. */
     virtual String getFullPath(bool bWithLabel = true);
 
     /** Delete all data from the file. */
@@ -367,7 +370,6 @@ class EXPORTED_PUBLIC File
 
     bool m_bDirect;
 
-#ifndef VFS_NOMMU
     /**
      * This cache is necessary to handle filesystems with block sizes that are
      * smaller than the native page size. For these filesystems, to perform
@@ -377,9 +379,7 @@ class EXPORTED_PUBLIC File
      * but that's an acceptable compromise.
      */
     Cache m_FillCache;
-#endif
 
-#ifdef THREADS
     Mutex m_Lock;
 
     struct MonitorTarget
@@ -392,7 +392,6 @@ class EXPORTED_PUBLIC File
     };
 
     List<MonitorTarget *> m_MonitorTargets;
-#endif
 
   private:
     /** Retrieve a page from our cache. */

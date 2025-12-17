@@ -7,9 +7,9 @@ die ("No target given!") unless scalar @ARGV > 0;
 
 my $target = $ARGV[0];
 
-my $gcc_version = "9.3.0";
-my $binutils_version = "2.35";
-my $nasm_version = "2.15.05";
+my $gcc_version = "8.3.0";
+my $binutils_version = "2.32";
+my $nasm_version = "2.12.02";
 
 my $gcc_configure_special = " --disable-werror ";
 my $binutils_configure_special = " --disable-werror ";
@@ -41,19 +41,19 @@ for(my $i = 2; $i < @ARGV; $i++)
 my @download = ( {'url' => "ftp://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_version.tar.xz",
                   'name' => 'GCC',
                   'filename' => "gcc-$gcc_version.tar.xz",
-                  'extract' => "tar -xJf gcc-$gcc_version.tar.xz",
+                  'extract' => "tar -xf gcc-$gcc_version.tar.xz",
                   'arch' => 'all',
                   'creates' => "gcc-$gcc_version"},
-                 {'url' => "ftp://ftp.gnu.org/gnu/binutils/binutils-$binutils_version.tar.xz",
+                 {'url' => "ftp://ftp.gnu.org/gnu/binutils/binutils-$binutils_version.tar.bz2",
                   'name' => 'Binutils',
-                  'filename' => "binutils-$binutils_version.tar.xz",
-                  'extract' => "tar -xJf binutils-$binutils_version.tar.xz",
+                  'filename' => "binutils-$binutils_version.tar.bz2",
+                  'extract' => "tar -xjf binutils-$binutils_version.tar.bz2",
                   'arch' => 'all',
                   'creates' => "binutils-$binutils_version"},
-                 {'url' => "http://www.nasm.us/pub/nasm/releasebuilds/$nasm_version/nasm-$nasm_version.tar.xz",
+                 {'url' => "http://www.nasm.us/pub/nasm/releasebuilds/$nasm_version/nasm-$nasm_version.tar.bz2",
                   'name' => 'Nasm',
-                  'filename' => "nasm-$nasm_version.tar.xz",
-                  'extract' => "tar -xJf nasm-$nasm_version.tar.xz",
+                  'filename' => "nasm-$nasm_version.tar.bz2",
+                  'extract' => "tar -xjf nasm-$nasm_version.tar.bz2",
                   'arch' => 'i686-pedigree x86_64-pedigree amd64-pedigree i686-elf amd64-elf',
                   'creates' => "nasm-$nasm_version"} );
 
@@ -338,11 +338,19 @@ SYMLINKS:
 
 print "Complete; linking crt*.o...\n";
 
+# compiler-specific dir
 `ln -sf $prefix/build/musl/lib/crt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/crt1.o`;
 `ln -sf $prefix/build/musl/lib/rcrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/rcrt1.o`;
 `ln -sf $prefix/build/musl/lib/Scrt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/Scrt1.o`;
 `ln -sf $prefix/build/musl/lib/crti.o ./compilers/dir/lib/gcc/$target/$gcc_version/crti.o`;
 `ln -sf $prefix/build/musl/lib/crtn.o ./compilers/dir/lib/gcc/$target/$gcc_version/crtn.o`;
+# sysroot
+`ln -sf $prefix/build/musl/lib/crt1.o ./compilers/dir/$target/lib/crt1.o`;
+`ln -sf $prefix/build/musl/lib/rcrt1.o ./compilers/dir/$target/lib/rcrt1.o`;
+`ln -sf $prefix/build/musl/lib/Scrt1.o ./compilers/dir/$target/lib/Scrt1.o`;
+`ln -sf $prefix/build/musl/lib/crti.o ./compilers/dir/$target/lib/crti.o`;
+`ln -sf $prefix/build/musl/lib/crtn.o ./compilers/dir/$target/lib/crtn.o`;
+# header path
 `ln -sf $prefix/build/musl/include ./compilers/dir/$target/`;
 
 # include-fixed is NOT necessary

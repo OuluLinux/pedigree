@@ -142,9 +142,9 @@ static char **load_string_array(
     int i = 0;
     for (auto it = rArray.begin(); it != rArray.end(); it++)
     {
-        SharedPointer<String> pStr = *it;
+        const String *pStr = it->get();
 
-        StringCopy(pPtr, *pStr);
+        StringCopy(pPtr, pStr->cstr());
         pPtr[pStr->length()] = '\0';  // Ensure NULL-termination.
 
         pMasterArray[i] = pPtr;
@@ -294,6 +294,7 @@ long posix_clone(
         // delayed-start so we can ensure the new thread ID gets written to the
         // right places in memory.
         Thread *pThread = new Thread(pParentProcess, clonedState, true);
+        pThread->setName("posix clone() thread");
         pThread->setTlsBase(newtls);
         pThread->detach();
 
@@ -337,7 +338,7 @@ long posix_clone(
     }
 
     PosixSubsystem *pParentSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pParentProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pParentProcess->getSubsystem());
     PosixSubsystem *pSubsystem = new PosixSubsystem(*pParentSubsystem);
     if (!pSubsystem || !pParentSubsystem)
     {
@@ -417,6 +418,7 @@ long posix_clone(
 
     // Create a new thread for the new process.
     Thread *pThread = new Thread(pProcess, clonedState);
+    pThread->setName("posix clone() forked thread");
     pThread->detach();
 
     // Fix up the main thread in the child.
@@ -464,7 +466,7 @@ int posix_execve(
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("No subsystem for this process!");
@@ -486,7 +488,7 @@ int posix_execve(
     String invokePath;
     normalisePath(invokePath, name);
 
-    if (!pSubsystem->invoke(invokePath, listArgv, listEnv, state))
+    if (!pSubsystem->invoke(invokePath.cstr(), listArgv, listEnv, state))
     {
         SC_NOTICE(" -> execve failed in invoke");
         return -1;
@@ -737,7 +739,7 @@ int posix_exit(int code, bool allthreads)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
     if (allthreads)
     {
@@ -1548,7 +1550,7 @@ int posix_syslog(const char *msg, int prio)
         WARNING("[" << Dec << id << Hex << "]\tklog: " << msg);
     else if (prio == LOG_NOTICE || prio == LOG_INFO)
         NOTICE("[" << Dec << id << Hex << "]\tklog: " << msg);
-#ifdef DEBUGGER
+#if DEBUGGER
     else
         NOTICE("[" << Dec << id << Hex << "]\tklog: " << msg);
 #endif
@@ -1658,7 +1660,7 @@ int posix_uname(struct utsname *n)
     Process *pProcess =
         Processor::information().getCurrentThread()->getParent();
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
 
     StringCopy(n->sysname, "Pedigree");
 

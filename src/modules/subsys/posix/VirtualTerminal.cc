@@ -33,7 +33,7 @@ VirtualTerminalManager::VirtualTerminalManager(DevFsDirectory *parentDir)
     {
         m_Terminals[i].textio = nullptr;
         m_Terminals[i].file = nullptr;
-#ifdef THREADS
+#if THREADS
         m_Terminals[i].owner = nullptr;
 #endif
 
@@ -88,7 +88,7 @@ bool VirtualTerminalManager::initialise()
         {
             ConsolePhysicalFile *file =
                 new ConsolePhysicalFile(i + 1, tio, ttyname, g_pDevFs);
-            m_ParentDir->addEntry(tio->getName(), file);
+            m_ParentDir->addEntry(ttyname, file);
 
             m_Terminals[i].textio = tio;
             m_Terminals[i].file = file;
@@ -258,7 +258,7 @@ void VirtualTerminalManager::setTerminalMode(size_t n, struct vt_mode mode)
     NOTICE("setTerminalMode #" << n);
     m_Terminals[n].mode = mode;
 
-#ifdef THREADS
+#if THREADS
     if (mode.mode == VT_PROCESS)
     {
         m_Terminals[n].owner =
@@ -348,10 +348,10 @@ void VirtualTerminalManager::sendSignal(size_t n, bool acq)
         return;
     }
 
-#ifdef THREADS
+#if THREADS
     Process *pProcess = m_Terminals[n].owner;
     PosixSubsystem *pSubsystem =
-        reinterpret_cast<PosixSubsystem *>(pProcess->getSubsystem());
+        static_cast<PosixSubsystem *>(pProcess->getSubsystem());
     if (!pSubsystem)
     {
         ERROR("VirtualTerminal::sendSignal: no subsystem");
