@@ -146,6 +146,9 @@ $ENV{CXXFLAGS} = "";
 $ENV{LDFLAGS} = "";
 $ENV{ASFLAGS} = "";
 
+# Suppress ac-wrapper warnings about version auto-detection
+$ENV{WANT_AUTOCONF} = "latest";
+
 my $dir = $ARGV[1];
 
 my $prefix = `pwd`;

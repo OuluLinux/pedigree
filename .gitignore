@@ -23,8 +23,9 @@ build-etc/travis-compilers/scripts
 build-etc/travis-compilers_*
 build-host/
 build_cache
-compilers*
 compilers/dir
+compilers/dl_cache
+compilers/build_tmp
 Debug
 docs/doxygen/*
 images/local*
