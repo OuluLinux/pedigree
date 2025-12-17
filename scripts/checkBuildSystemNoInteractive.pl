@@ -59,7 +59,7 @@ my @download = ( {'url' => "ftp://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_
 
 my @command = ( {'cwd' => "gcc-$gcc_version",
                  'name' => "fixing autoconf version dependency (GCC)",
-                 'cmd' => "autoconf -V | grep autoconf | tr ' ' '\n' | tail -1 | xargs printf -- '-i.bak \"s/2.64/\%s/g\" ./config/override.m4' | xargs sed",
+                 'cmd' => "autoconf_version=`autoconf --version | head -n1 | grep -oE '[0-9]+\\.[0-9]+(\\.[0-9]+)?' | head -n1`; sed -i.bak \"s/m4_version_prereq(\\[2\\.64\\])/m4_version_prereq(\\[\\\$autoconf_version\\])/g; s/m4_version_prereq(2\\.64)/m4_version_prereq(\\\$autoconf_version)/g; s/AC_PREREQ(\\[2\\.64\\])/AC_PREREQ(\\[\\\$autoconf_version\\])/g; s/AC_PREREQ(2\\.64)/AC_PREREQ(\\\$autoconf_version)/g; s/Please use exactly Autoconf 2\\.64 instead of/Please use exactly Autoconf \\\$autoconf_version instead of/g\" configure.ac ./config/override.m4 2>/dev/null || true",
                  'arch' => 'all'},
                  {'cwd' => "binutils-$binutils_version",
                  'name' => "fixing autoconf version dependency (Binutils)",
