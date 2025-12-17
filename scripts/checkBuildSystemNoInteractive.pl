@@ -7,8 +7,8 @@ die ("No target given!") unless scalar @ARGV > 0;
 
 my $target = $ARGV[0];
 
-my $gcc_version = "8.3.0";
-my $binutils_version = "2.32";
+my $gcc_version = "6.3.0";
+my $binutils_version = "2.28";
 my $nasm_version = "2.12.02";
 
 my $gcc_configure_special = " --disable-werror ";
@@ -38,10 +38,10 @@ for(my $i = 2; $i < @ARGV; $i++)
     }
 }
 
-my @download = ( {'url' => "ftp://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_version.tar.xz",
+my @download = ( {'url' => "ftp://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_version.tar.bz2",
                   'name' => 'GCC',
-                  'filename' => "gcc-$gcc_version.tar.xz",
-                  'extract' => "tar -xf gcc-$gcc_version.tar.xz",
+                  'filename' => "gcc-$gcc_version.tar.bz2",
+                  'extract' => "tar -xjf gcc-$gcc_version.tar.bz2",
                   'arch' => 'all',
                   'creates' => "gcc-$gcc_version"},
                  {'url' => "ftp://ftp.gnu.org/gnu/binutils/binutils-$binutils_version.tar.bz2",
