@@ -63,7 +63,7 @@ my @command = ( {'cwd' => "gcc-$gcc_version",
                  'arch' => 'all'},
                  {'cwd' => "binutils-$binutils_version",
                  'name' => "fixing autoconf version dependency (Binutils)",
-                 'cmd' => "autoconf -V | grep autoconf | tr ' ' '\n' | tail -1 | xargs -I {} sh -c 'sed -i.bak \"s/m4_version_prereq(\\[2\\.69\\])/m4_version_prereq(\\[{}\\])/g; s/m4_version_prereq(2\\.69)/m4_version_prereq({})/g; s/Please use exactly Autoconf 2\\.69 instead of/Please use exactly Autoconf {}/g\" configure.ac ./config/override.m4 2>/dev/null || true'",
+                 'cmd' => "autoconf_version=$(autoconf --version | head -n1 | grep -oE '[0-9]+\\.[0-9]+(\\.[0-9]+)?' | head -n1); sed -i.bak \"s/m4_version_prereq(\\[2\\.69\\])/m4_version_prereq(\\[\\\$autoconf_version\\])/g; s/m4_version_prereq(2\\.69)/m4_version_prereq(\\\$autoconf_version)/g; s/AC_PREREQ(\\[2\\.69\\])/AC_PREREQ(\\[\\\$autoconf_version\\])/g; s/AC_PREREQ(2\\.69)/AC_PREREQ(\\\$autoconf_version)/g; s/Please use exactly Autoconf 2\\.69 instead of/Please use exactly Autoconf \\\$autoconf_version instead of/g\" configure.ac ./config/override.m4 2>/dev/null || true",
                  'arch' => 'all'},
                 {'cwd' => "binutils-$binutils_version",
                  'name' => "Binutils autoconf",
@@ -259,6 +259,9 @@ foreach (@patch) {
     my $stdout = `cd ./compilers/dir/build_tmp/$patch{cwd}; patch $patch{flags} < $prefix/compilers/$patch{input} 2>&1 && touch .patched`;
     if ($? != 0) {
       print "\nFailed - output:\n$stdout";
+      print "\nThis error often occurs when the patch files are incompatible with the downloaded source code version.";
+      print "\nYou may need to update the patch files in the compilers/ directory to be compatible with the downloaded version.";
+      print "\nTry removing compilers/dir and running the build again, or check if updated patches are available.";
       `rm -r ./compilers/dir/build_tmp/build`;
       exit 1;
     }
