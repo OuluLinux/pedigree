@@ -80,12 +80,12 @@ my @command = ( {'cwd' => "gcc-$gcc_version",
 
 my @patch = ( {'cwd' => "gcc-$gcc_version",
                'name' => "Gcc pedigree target patch",
-               'flags' => '-p1',
+               'flags' => '-p1 -f',
                'input' => 'pedigree-gcc.patch',
                'arch' => 'all'},
               {'cwd' => "binutils-$binutils_version",
                'name' => "Binutils pedigree target patch",
-               'flags' => '-p1',
+               'flags' => '-p1 -f',
                'input' => 'pedigree-binutils.patch',
                'arch' => 'all'} );
 
