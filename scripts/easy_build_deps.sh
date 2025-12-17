@@ -22,7 +22,7 @@ nosudo=0
 if [ ! -e $script_dir/.easy_os ]; then
 
     echo "Checking for dependencies... Which operating system are you running on?"
-    echo "Cygwin, Debian/Ubuntu, OpenSuSE, Fedora, OSX, Arch, or some other system?"
+    echo "Cygwin, Debian/Ubuntu, OpenSuSE, Fedora, OSX, Arch, Gentoo, or some other system?"
 
     confirm=""
     if [ $# == 0 ]; then
@@ -123,6 +123,10 @@ if [ ! -e $script_dir/.easy_os ]; then
         arch)
             echo "Installing packages with pacman, please wait..."
             sudo pacman -S gcc binutils gmp libmpc mpfr sqlite texinfo scons wget cdrtools mtools tar
+            ;;
+        gentoo)
+            echo "Installing packages with emerge, please wait..."
+            sudo emerge -v sys-devel/gcc sys-devel/binutils dev-libs/gmp dev-libs/mpc dev-libs/mpfr dev-db/sqlite dev-libs/texinfo dev-util/scons net-misc/wget sys-apps/cdrtools dosfstools/nasm dev-lang/python dev-python/requests dev-util/cmake sys-devel/flex sys-devel/bison dev-util/lcov
             ;;
         *)
             echo "Operating system '$os' is not supported yet."
