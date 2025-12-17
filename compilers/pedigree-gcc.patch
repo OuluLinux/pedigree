@@ -215,3 +215,72 @@ diff -Naur gcc-6.3.0-original/libtool.m4 gcc-6.3.0/libtool.m4
    _LT_CMD_STRIPLIB
  
    # Report which library types will actually be built
+diff -Naur gcc-6.3.0-original/gcc/config/pedigree.h gcc-6.3.0/gcc/config/pedigree.h
+--- gcc-6.3.0-original/gcc/config/pedigree.h	1970-01-01 02:00:00.000000000 +0200
++++ gcc-6.3.0/gcc/config/pedigree.h	2025-12-17 22:00:00.000000000 +0200
+@@ -0,0 +1,52 @@
++/* Base configuration file for all Pedigree targets.
++   Copyright (C) 2008-2016 Pedigree Developers.
++
++This file is part of GCC.
++
++GCC is free software; you can redistribute it and/or modify
++it under the terms of the GNU General Public License as published by
++the Free Software Foundation; either version 3, or (at your option)
++any later version.
++
++GCC is distributed in the hope that it will be useful,
++but WITHOUT ANY WARRANTY; without even the implied warranty of
++MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++GNU General Public License for more details.
++
++You should have received a copy of the GNU General Public License
++along with GCC; see the file COPYING3.  If not see
++<http://www.gnu.org/licenses/>.  */
++
++/* Common Pedigree configuration.
++   All Pedigree architectures should include this file, which will specify
++   their commonalities.  */
++
++#undef TARGET_PEDIGREE
++#define TARGET_PEDIGREE 1
++
++/* Default arguments for the preprocessor.  */
++#undef  CPP_SPEC
++#define CPP_SPEC "%(cpp_cpu) %{posix:-D_POSIX_SOURCE}"
++
++/* We don't have a libc yet, so don't try to link against it.  */
++#undef  LIB_SPEC
++#define LIB_SPEC ""
++
++/* Use --as-needed for linking libraries.  */
++#ifdef HAVE_LD_AS_NEEDED
++#define USE_LD_AS_NEEDED 1
++#endif
++
++/* Pedigree uses ELF object file format.  */
++#undef  OBJECT_FORMAT_ELF
++#define OBJECT_FORMAT_ELF
++
++/* Don't assume anything about the system's header files.  */
++#undef  NO_IMPLICIT_EXTERN_C
++#define NO_IMPLICIT_EXTERN_C 1
++
++/* Pedigree follows standard ELF conventions.  */
++#undef  WCHAR_TYPE
++#define WCHAR_TYPE "int"
++
++#undef  WINT_TYPE
++#define WINT_TYPE "unsigned int"
+diff -Naur gcc-6.3.0-original/gcc/ubsan.c gcc-6.3.0/gcc/ubsan.c
+--- gcc-6.3.0-original/gcc/ubsan.c	2016-01-04 16:30:50.000000000 +0200
++++ gcc-6.3.0/gcc/ubsan.c	2025-12-17 22:03:00.000000000 +0200
+@@ -1471,7 +1471,7 @@
+ 
+   expanded_location xloc = expand_location (loc);
+   if (xloc.file == NULL || strncmp (xloc.file, "\1", 2) == 0
+-      || xloc.file == '\0' || xloc.file[0] == '\xff'
++      || xloc.file[0] == '\0' || xloc.file[0] == '\xff'
+       || xloc.file[1] == '\xff')
+     return false;
+ 
