@@ -8,11 +8,11 @@ Subject: [PATCH] Add arm-pedigree and x86_64-pedigree to Binutils.
  config.sub                       |  2 ++
  configure.ac                     |  4 ++--
  gas/configure.tgt                |  2 ++
- ld/Makefile.in                   | 10 ++++++++++
+ ld/Makefile.am                   |  2 ++
  ld/configure.tgt                 |  2 ++
  ld/emulparams/pedigree_arm.sh    | 35 +++++++++++++++++++++++++++++++++++
  ld/emulparams/pedigree_x86_64.sh | 25 +++++++++++++++++++++++++
- 8 files changed, 89 insertions(+), 2 deletions(-)
+ 8 files changed, 81 insertions(+), 2 deletions(-)
  create mode 100644 ld/emulparams/pedigree_arm.sh
  create mode 100644 ld/emulparams/pedigree_x86_64.sh
 
@@ -88,39 +88,37 @@ index 711d537e95..dcf750b535 100644
    arm-*-riscix*)			fmt=aout em=riscix ;;
    arm-*-fuchsia*)			fmt=elf ;;
 +  arm-*-pedigree*)		fmt=elf ;;
- 
+
    avr-*-*)				fmt=elf bfd_gas=yes ;;
- 
+
 @@ -288,6 +289,7 @@ case ${generic_target} in
    i386-*-chaos)				fmt=elf ;;
    i386-*-rdos*)				fmt=elf ;;
    i386-*-darwin*)			fmt=macho ;;
 +  i386-*-pedigree*)		fmt=elf ;;
- 
+
    i860-*-*)				fmt=elf endian=little ;;
- 
-diff --git a/ld/Makefile.in b/ld/Makefile.in
-index 042b690ed6..96e89611f3 100644
---- a/ld/Makefile.in
-+++ b/ld/Makefile.in
-@@ -754,6 +754,8 @@ ALL_EMULATION_SOURCES = \
- 	enios2linux.c \
- 	epc532macha.c \
- 	epdp11.c \
+
+diff --git a/ld/Makefile.am b/ld/Makefile.am
+index 042b690ed6..e959d9b0e1 100644
+--- a/ld/Makefile.am
++++ b/ld/Makefile.am
+@@ -185,6 +185,7 @@ ALL_EMULATION_SOURCES = \
+ 	earmelfb_nbsd.c \
+ 	earmnto.c \
+ 	earmpe.c \
 +	epedigree_arm.c \
+ 	earmsymbian.c \
+ 	eavr1.c \
+ 	eavr2.c \
+@@ -451,6 +452,7 @@ ALL_64_EMULATION_SOURCES = \
+ 	eelf_k1om_fbsd.c \
+ 	eelf_x86_64.c \
+ 	eelf_x86_64_cloudabi.c \
 +	epedigree_x86_64.c \
- 	epjelf.c \
- 	epjlelf.c \
- 	eppclynx.c \
-@@ -1456,6 +1458,8 @@ distclean-compile:
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/ens32knbsd.Po@am__quote@
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epc532macha.Po@am__quote@
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epdp11.Po@am__quote@
-+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epedigree_arm.Po@am__quote@
-+@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epedigree_x86_64.Po@am__quote@
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epjelf.Po@am__quote@
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/epjlelf.Po@am__quote@
- @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/eppclynx.Po@am__quote@
+ 	eelf_x86_64_fbsd.c \
+ 	eelf_x86_64_sol2.c \
+ 	ehppa64linux.c \
 diff --git a/ld/configure.tgt b/ld/configure.tgt
 index b85c6bb35a..de67ac7304 100644
 --- a/ld/configure.tgt
@@ -184,7 +182,6 @@ index 0000000000..ca443ce0e3
 +
 +# ARM does not support .s* sections.
 +NO_SMALL_DATA=yes
-\ No newline at end of file
 diff --git a/ld/emulparams/pedigree_x86_64.sh b/ld/emulparams/pedigree_x86_64.sh
 new file mode 100644
 index 0000000000..2a7005c34b
@@ -216,7 +213,5 @@ index 0000000000..2a7005c34b
 +      NATIVE=yes
 +  esac
 +fi
-\ No newline at end of file
--- 
+--
 2.12.0.rc1.440.g5b76565f74-goog
-
