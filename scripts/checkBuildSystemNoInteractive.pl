@@ -7,9 +7,9 @@ die ("No target given!") unless scalar @ARGV > 0;
 
 my $target = $ARGV[0];
 
-my $gcc_version = "6.3.0";
-my $binutils_version = "2.28";
-my $nasm_version = "2.12.02";
+my $gcc_version = "9.3.0";
+my $binutils_version = "2.35";
+my $nasm_version = "2.15.05";
 
 my $gcc_configure_special = " --disable-werror ";
 my $binutils_configure_special = " --disable-werror ";
@@ -38,28 +38,28 @@ for(my $i = 2; $i < @ARGV; $i++)
     }
 }
 
-my @download = ( {'url' => "ftp://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_version.tar.bz2",
+my @download = ( {'url' => "ftp://ftp.gnu.org/gnu/gcc/gcc-$gcc_version/gcc-$gcc_version.tar.xz",
                   'name' => 'GCC',
-                  'filename' => "gcc-$gcc_version.tar.bz2",
-                  'extract' => "tar -xjf gcc-$gcc_version.tar.bz2",
+                  'filename' => "gcc-$gcc_version.tar.xz",
+                  'extract' => "tar -xf gcc-$gcc_version.tar.xz",
                   'arch' => 'all',
                   'creates' => "gcc-$gcc_version"},
-                 {'url' => "ftp://ftp.gnu.org/gnu/binutils/binutils-$binutils_version.tar.bz2",
+                 {'url' => "ftp://ftp.gnu.org/gnu/binutils/binutils-$binutils_version.tar.xz",
                   'name' => 'Binutils',
-                  'filename' => "binutils-$binutils_version.tar.bz2",
-                  'extract' => "tar -xjf binutils-$binutils_version.tar.bz2",
+                  'filename' => "binutils-$binutils_version.tar.xz",
+                  'extract' => "tar -xf binutils-$binutils_version.tar.xz",
                   'arch' => 'all',
                   'creates' => "binutils-$binutils_version"},
-                 {'url' => "http://www.nasm.us/pub/nasm/releasebuilds/$nasm_version/nasm-$nasm_version.tar.bz2",
+                 {'url' => "http://www.nasm.us/pub/nasm/releasebuilds/$nasm_version/nasm-$nasm_version.tar.xz",
                   'name' => 'Nasm',
-                  'filename' => "nasm-$nasm_version.tar.bz2",
-                  'extract' => "tar -xjf nasm-$nasm_version.tar.bz2",
+                  'filename' => "nasm-$nasm_version.tar.xz",
+                  'extract' => "tar -xf nasm-$nasm_version.tar.xz",
                   'arch' => 'i686-pedigree x86_64-pedigree amd64-pedigree i686-elf amd64-elf',
                   'creates' => "nasm-$nasm_version"} );
 
 my @command = ( {'cwd' => "gcc-$gcc_version",
                  'name' => "fixing autoconf version dependency (GCC)",
-                 'cmd' => "autoconf_version=`autoconf --version | head -n1 | grep -oE '[0-9]+\\.[0-9]+(\\.[0-9]+)?' | head -n1`; sed -i.bak -e \"s/AC_PREREQ(\\[2\\.64\\])/AC_PREREQ(\\[\$autoconf_version\\])/g\" -e \"s/AC_PREREQ(2\\.64)/AC_PREREQ(\$autoconf_version)/g\" -e \"s/Please use exactly Autoconf 2\\.64 instead of/Please use exactly Autoconf \$autoconf_version instead of/g\" -e \"s/m4_define(\\[_GCC_AUTOCONF_VERSION\\], \\[2\\.64\\])/m4_define([_GCC_AUTOCONF_VERSION], [\$autoconf_version])/g\" configure.ac ./config/override.m4 2>/dev/null || true",
+                 'cmd' => "autoconf_version=`autoconf --version | head -n1 | grep -oE '[0-9]+\\.[0-9]+(\\.[0-9]+)?' | head -n1`; sed -i.bak -e \"s/AC_PREREQ(\\[2\\.64\\])/AC_PREREQ(\\[\$autoconf_version\\])/g\" -e \"s/AC_PREREQ(2\\.64)/AC_PREREQ(\$autoconf_version)/g\" -e \"s/AC_PREREQ(\\[2\\.69\\])/AC_PREREQ(\\[\$autoconf_version\\])/g\" -e \"s/AC_PREREQ(2\\.69)/AC_PREREQ(\$autoconf_version)/g\" -e \"s/Please use exactly Autoconf 2\\.64 instead of/Please use exactly Autoconf \$autoconf_version instead of/g\" -e \"s/Please use exactly Autoconf 2\\.69 instead of/Please use exactly Autoconf \$autoconf_version instead of/g\" -e \"s/m4_define(\\[_GCC_AUTOCONF_VERSION\\], \\[2\\.64\\])/m4_define([_GCC_AUTOCONF_VERSION], [\$autoconf_version])/g\" -e \"s/m4_define(\\[_GCC_AUTOCONF_VERSION\\], \\[2\\.69\\])/m4_define([_GCC_AUTOCONF_VERSION], [\$autoconf_version])/g\" configure.ac ./config/override.m4 2>/dev/null || true",
                  'arch' => 'all'},
                  {'cwd' => "binutils-$binutils_version",
                  'name' => "fixing autoconf version dependency (Binutils)",
@@ -162,7 +162,10 @@ unless (-l "./compilers/dir") {
   print "<not interactive, using $dir>\n";
   chomp $dir;
  `mkdir -p $dir`;
-  my $stdout = `ln -s $dir ./compilers/dir`;
+  # Convert relative path to be relative from compilers/ directory
+  my $rel_dir = $dir;
+  $rel_dir =~ s|^\./|../|;  # Convert ./foo to ../foo for relative symlink
+  my $stdout = `ln -s $rel_dir ./compilers/dir`;
   if (length $stdout) {
     print "That directory wasn't valid.\n";
     exit 1;

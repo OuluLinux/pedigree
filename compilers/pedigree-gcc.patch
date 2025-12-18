@@ -1,75 +1,100 @@
-diff -Naur gcc-6.3.0-original/config.sub gcc-6.3.0/config.sub
---- gcc-6.3.0-original/config.sub	2016-08-31 11:49:03.000000000 +0300
-+++ gcc-6.3.0/config.sub	2025-12-17 20:42:23.565414129 +0200
-@@ -1531,6 +1531,9 @@
+From 8c5d286f43c79be3820aca780eb7fb9d7ca34635 Mon Sep 17 00:00:00 2001
+From: Matthew Iselin <matthew@theiselins.net>
+Date: Tue, 7 Mar 2017 11:32:09 -0800
+Subject: [PATCH] Add arm-pedigree and x86_64-pedigree targets to GCC.
+
+---
+ config.sub                                    |  3 ++
+ configure.ac                                  |  4 +--
+ gcc/Makefile.in                               |  1 +
+ gcc/config.gcc                                | 23 ++++++++++++--
+ gcc/config/pedigree.h                         | 44 +++++++++++++++++++++++++++
+ gcc/config/t-pedigree                         |  6 ++++
+ libgcc/config.host                            | 10 ++++--
+ libstdc++-v3/config/os/gnu-linux/os_defines.h |  7 -----
+ libstdc++-v3/configure.host                   |  4 +++
+ libstdc++-v3/crossconfig.m4                   |  4 +++
+ libtool.m4                                    |  4 ++-
+ 11 files changed, 96 insertions(+), 14 deletions(-)
+ create mode 100644 gcc/config/pedigree.h
+ create mode 100644 gcc/config/t-pedigree
+
+diff --git a/config.sub b/config.sub
+index 41146e11c6c..5de531dfb37 100755
+--- a/config.sub
++++ b/config.sub
+@@ -1507,6 +1507,9 @@ case $os in
  		;;
- 	-nacl*)
+ 	ios)
  		;;
-+	-pedigree*)
-+		os=-pedigree
-+		;;
- 	-none)
++        pedigree*)
++                os=-pedigree
++                ;;
+ 	none)
  		;;
- 	*)
-diff -Naur gcc-6.3.0-original/configure.ac gcc-6.3.0/configure.ac
---- gcc-6.3.0-original/configure.ac	2016-03-18 00:54:19.000000000 +0200
-+++ gcc-6.3.0/configure.ac	2025-12-17 20:42:23.582081210 +0200
-@@ -1067,6 +1067,7 @@
-     noconfigdirs="$noconfigdirs target-libgloss"
-     # this is not caught below because this stanza matches earlier
-     case $target in
-+      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
-       or1k*-*-*) noconfigdirs="$noconfigdirs gdb" ;;
-     esac
-     ;;
-@@ -1817,6 +1818,7 @@
+ 	*-eabi)
+diff --git a/configure.ac b/configure.ac
+index 74bf58aad93..2af081be2cc 100644
+--- a/configure.ac
++++ b/configure.ac
+@@ -1723,7 +1723,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms b
    build_lto_plugin=yes
  ],[if test x"$default_enable_lto" = x"yes" ; then
      case $target in
+-      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp*) ;;
 +      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
-       *-apple-darwin9* | *-cygwin* | *-mingw* | *djgpp*) ;;
        # On other non-ELF platforms, LTO has yet to be validated.
        *) enable_lto=no ;;
-@@ -1828,7 +1830,8 @@
+     esac
+@@ -1828,7 +1828,7 @@ ACX_ELF_TARGET_IFELSE([# ELF platforms build the lto-plugin always.
    # warn during gcc/ subconfigure; unless you're bootstrapping with
    # -flto it won't be needed until after installation anyway.
      case $target in
 -      *-cygwin* | *-mingw* | *-apple-darwin* | *djgpp*) ;;
-+      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
 +      *-cygwin* | *-mingw* | *-apple-darwin* | *djgpp* | *pedigree*) ;;
        *) if test x"$enable_lto" = x"yes"; then
  	AC_MSG_ERROR([LTO support is not enabled for this target.])
          fi
-@@ -1838,6 +1841,7 @@
-   # Among non-ELF, only Windows platforms support the lto-plugin so far.
-   # Build it unless LTO was explicitly disabled.
-   case $target in
-+      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
-     *-cygwin* | *-mingw*) build_lto_plugin=$enable_lto ;;
-     *) ;;
-   esac
-@@ -2577,6 +2581,7 @@
- 
- alphaieee_frag=/dev/null
- case $target in
-+      *-apple-darwin[[912]]* | *-cygwin* | *-mingw* | *djgpp* | *pedigree*) ;;
-   alpha*-*-*)
-     # This just makes sure to use the -mieee option to build target libs.
-     # This should probably be set individually by each library.
-diff -Naur gcc-6.3.0-original/gcc/config.gcc gcc-6.3.0/gcc/config.gcc
---- gcc-6.3.0-original/gcc/config.gcc	2016-11-07 23:38:43.000000000 +0200
-+++ gcc-6.3.0/gcc/config.gcc	2025-12-17 20:42:14.728527349 +0200
-@@ -904,6 +904,9 @@
+diff --git a/gcc/Makefile.in b/gcc/Makefile.in
+index 13d0d1ba001..d3acffd727e 100644
+--- a/gcc/Makefile.in
++++ b/gcc/Makefile.in
+@@ -230,6 +230,7 @@ CPPFLAGS = @CPPFLAGS@
+ AWK = @AWK@
+ CC = @CC@
+ CXX = @CXX@
++CPP = @CPP@
+ BISON = @BISON@
+ BISONFLAGS =
+ FLEX = @FLEX@
+diff --git a/gcc/config.gcc b/gcc/config.gcc
+index 1d5b23f228d..fe4e2fa951a 100644
+--- a/gcc/config.gcc
++++ b/gcc/config.gcc
+@@ -904,6 +904,13 @@ case ${target} in
      *) echo 'Unknown thread configuration for VxWorks'; exit 1 ;;
    esac
    ;;
 +*-*-pedigree*)
++  extra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o"
++  gas=yes
++  gnu_ld=yes
++  default_use_cxa_atexit=yes
 +  use_gcc_stdint=provide
 +  ;;
  *-*-elf|arc*-*-elf*)
    # Assume that newlib is being used and so __cxa_atexit is provided.
    default_use_cxa_atexit=yes
-@@ -1117,10 +1120,17 @@
+@@ -1215,7 +1215,7 @@ arm*-*-phoenix*)
+ 	tmake_file="${tmake_file} arm/t-arm arm/t-bpabi arm/t-phoenix"
+ 	target_cpu_cname="arm7tdmi"
+ 	;;
+-arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems* | arm*-*-fuchsia*)
++arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems* | arm*-*-fuchsia* | arm*-*-pedigree*)
+ 	case ${target} in
+ 	arm*eb-*-eabi*)
+ 	  tm_defines="${tm_defines} TARGET_BIG_ENDIAN_DEFAULT=1"
+@@ -1117,10 +1124,17 @@ arm*-*-eabi* | arm*-*-symbianelf* | arm*-*-rtems*)
  	tm_file="dbxelf.h elfos.h arm/unknown-elf.h arm/elf.h arm/bpabi.h"
  	tmake_file="${tmake_file} arm/t-arm arm/t-arm-elf"
  	case ${target} in
@@ -88,44 +113,93 @@ diff -Naur gcc-6.3.0-original/gcc/config.gcc gcc-6.3.0/gcc/config.gcc
  	  ;;
  	arm*-*-rtems*)
  	  tm_file="${tm_file} rtems.h arm/rtems.h newlib-stdint.h"
-@@ -1603,6 +1613,11 @@
+@@ -1603,6 +1617,11 @@ x86_64-*-linux* | x86_64-*-kfreebsd*-gnu | x86_64-*-knetbsd*-gnu)
  	done
  	TM_MULTILIB_CONFIG=`echo $TM_MULTILIB_CONFIG | sed 's/^,//'`
  	;;
 +x86_64-*-pedigree*)
-+	tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h i386/i386elf.h i386/x86-64.h pedigree.h newlib-stdint.h"
-+	tmake_file="i386/t-i386elf i386/t-crtstuff t-pedigree"
-+	use_fixproto=yes
-+	;;
++    tm_file="${tm_file} i386/unix.h i386/att.h dbxelf.h elfos.h i386/i386elf.h i386/x86-64.h pedigree.h newlib-stdint.h"
++    tmake_file="i386/t-i386elf i386/t-crtstuff t-pedigree"
++    use_fixproto=yes
++    ;;
  i[34567]86-pc-msdosdjgpp*)
  	xm_file=i386/xm-djgpp.h
  	tm_file="dbxcoff.h ${tm_file} i386/unix.h i386/bsd.h i386/gas.h i386/djgpp.h i386/djgpp-stdint.h"
-diff -Naur gcc-6.3.0-original/gcc/Makefile.in gcc-6.3.0/gcc/Makefile.in
---- gcc-6.3.0-original/gcc/Makefile.in	2016-11-22 19:33:07.000000000 +0200
-+++ gcc-6.3.0/gcc/Makefile.in	2025-12-17 20:42:14.721860516 +0200
-@@ -230,6 +230,7 @@
- AWK = @AWK@
- CC = @CC@
- CXX = @CXX@
-+CPP = @CPP@
- BISON = @BISON@
- BISONFLAGS =
- FLEX = @FLEX@
-diff -Naur gcc-6.3.0-original/libgcc/config.host gcc-6.3.0/libgcc/config.host
---- gcc-6.3.0-original/libgcc/config.host	2016-11-19 05:03:55.000000000 +0200
-+++ gcc-6.3.0/libgcc/config.host	2025-12-17 20:41:49.709060174 +0200
-@@ -260,6 +260,10 @@
+diff --git a/gcc/config/pedigree.h b/gcc/config/pedigree.h
+new file mode 100644
+index 00000000000..2db4e8c9f1b
+--- /dev/null
++++ b/gcc/config/pedigree.h
+@@ -0,0 +1,42 @@
++#undef STARTFILE_SPEC
++#define STARTFILE_SPEC \
++    "%{!shared:%{pie:S}crt1.o%s} crti.o%s %{shared|pie:crtbeginS.o%s;:crtbegin.o%s}"
++
++#undef ENDFILE_SPEC
++#define ENDFILE_SPEC \
++    "%{shared|pie:crtendS.o%s;:crtend.o%s} crtn.o%s"
++
++#undef CPLUSPLUS_CPP_SPEC
++#define CPLUSPLUS_CPP_SPEC "-D_GNU_SOURCE %(cpp)"
++
++#undef LIB_SPEC
++#define LIB_SPEC \
++    "%{pthread:-lpthread} \
++    -lc"
++
++#undef TARGET_OS_CPP_BUILTINS
++#define TARGET_OS_CPP_BUILTINS()                \
++    do {                                        \
++        builtin_define_std ("__pedigree__");    \
++        builtin_define_std ("__PEDIGREE__");    \
++        builtin_define_std ("unix");            \
++        builtin_assert ("system=pedigree");     \
++        builtin_assert ("system=unix");         \
++    } while(0);
++
++#if defined(HAVE_LD_EH_FRAME_HDR)
++#define LINK_EH_SPEC "%{!static:--eh-frame-hdr} "
++#endif
++
++#undef LINK_SPEC
++#define LINK_SPEC \
++                   "%{m32:-mpedigree_i386} \
++                    %{shared:-shared} \
++                    %{static:-static} \
++                    %{rdynamic:-export-dynamic} \
++                    -dynamic-linker /libraries/ld-musl-x86_64.so.1"
++
++/* Override size_t type for Pedigree, as Pedigree uses 'unsigned long' for all
++   targets. */
++#undef SIZE_TYPE
++#define SIZE_TYPE "long unsigned int"
+diff --git a/gcc/config/t-pedigree b/gcc/config/t-pedigree
+new file mode 100644
+index 00000000000..29165bda66b
+--- /dev/null
++++ b/gcc/config/t-pedigree
+@@ -0,0 +1,6 @@
++EXTRA_MULTILIB_PARTS= crtbegin.o crtend.o crtbeginS.o crtendS.o
++
++# always build crtstuff with PIC.
++CRTSTUFF_T_CFLAGS_S = $(CRTSTUFF_T_CFLAGS) -fPIC
++
++TARGET_LIBGCC2_CFLAGS = -fPIC
+diff --git a/libgcc/config.host b/libgcc/config.host
+index 124f2ceaefd..eaaf2dda8a6 100644
+--- a/libgcc/config.host
++++ b/libgcc/config.host
+@@ -260,6 +260,9 @@ case ${host} in
        ;;
    esac
    ;;
 +*-*-pedigree*)
-+  tmake_file="$tmake_file $cpu_type/t-crtstuff t-crtstuff-pic t-libgcc-pic"
 +  extra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o"
 +  ;;
  *-*-rtems*)
    tmake_file="$tmake_file t-rtems"
    extra_parts="crtbegin.o crtend.o"
-@@ -409,13 +413,19 @@
+@@ -409,11 +412,11 @@ arm*-*-phoenix*)
  	extra_parts="crtbegin.o crtend.o crti.o crtn.o"
  	unwind_header=config/arm/unwind-arm.h
  	;;
@@ -138,16 +212,8 @@ diff -Naur gcc-6.3.0-original/libgcc/config.host gcc-6.3.0/libgcc/config.host
 +	arm*-*-eabi* | arm*-*-rtems* | arm*-*-pedigree*)
  	  tmake_file="${tmake_file} arm/t-bpabi t-crtfm"
  	  extra_parts="crtbegin.o crtend.o crti.o crtn.o"
-+      case ${host} in
-+      arm*-*-pedigree*)
-+        # crti/crtn provided by musl
-+        extra_parts="crtbegin.o crtend.o crtbeginS.o crtendS.o"
-+        ;;
-+      esac
  	  ;;
- 	arm*-*-symbianelf*)
- 	  tmake_file="${tmake_file} arm/t-symbian t-slibgcc-nolc-override"
-@@ -595,6 +605,9 @@
+@@ -595,6 +598,9 @@ x86_64-*-dragonfly*)
  	tmake_file="${tmake_file} i386/t-dragonfly i386/t-crtstuff"
  	md_unwind_header=i386/dragonfly-unwind.h
  	;;
@@ -157,9 +223,10 @@ diff -Naur gcc-6.3.0-original/libgcc/config.host gcc-6.3.0/libgcc/config.host
  i[34567]86-*-freebsd*)
  	tmake_file="${tmake_file} i386/t-freebsd i386/t-crtstuff"
  	md_unwind_header=i386/freebsd-unwind.h
-diff -Naur gcc-6.3.0-original/libstdc++-v3/config/os/gnu-linux/os_defines.h gcc-6.3.0/libstdc++-v3/config/os/gnu-linux/os_defines.h
---- gcc-6.3.0-original/libstdc++-v3/config/os/gnu-linux/os_defines.h	2016-01-22 14:47:26.000000000 +0200
-+++ gcc-6.3.0/libstdc++-v3/config/os/gnu-linux/os_defines.h	2025-12-17 20:41:51.266199759 +0200
+diff --git a/libstdc++-v3/config/os/gnu-linux/os_defines.h b/libstdc++-v3/config/os/gnu-linux/os_defines.h
+index 59b0a622da6..e95026a0671 100644
+--- a/libstdc++-v3/config/os/gnu-linux/os_defines.h
++++ b/libstdc++-v3/config/os/gnu-linux/os_defines.h
 @@ -38,13 +38,6 @@
  
  #include <features.h>
@@ -174,10 +241,11 @@ diff -Naur gcc-6.3.0-original/libstdc++-v3/config/os/gnu-linux/os_defines.h gcc-
  // Glibc 2.23 removed the obsolete isinf and isnan declarations. Check the
  // version dynamically in case it has changed since libstdc++ was configured.
  #define _GLIBCXX_NO_OBSOLETE_ISINF_ISNAN_DYNAMIC __GLIBC_PREREQ(2,23)
-diff -Naur gcc-6.3.0-original/libstdc++-v3/configure.host gcc-6.3.0/libstdc++-v3/configure.host
---- gcc-6.3.0-original/libstdc++-v3/configure.host	2016-09-27 09:11:15.000000000 +0300
-+++ gcc-6.3.0/libstdc++-v3/configure.host	2025-12-17 20:41:54.338016711 +0200
-@@ -296,6 +296,10 @@
+diff --git a/libstdc++-v3/configure.host b/libstdc++-v3/configure.host
+index 304a7f5aff6..447f74912ee 100644
+--- a/libstdc++-v3/configure.host
++++ b/libstdc++-v3/configure.host
+@@ -296,6 +296,10 @@ case "${host_os}" in
    openbsd*)
      os_include_dir="os/bsd/openbsd"
      ;;
@@ -188,99 +256,18 @@ diff -Naur gcc-6.3.0-original/libstdc++-v3/configure.host gcc-6.3.0/libstdc++-v3
    qnx6.[12]*)
      os_include_dir="os/qnx/qnx6.1"
      c_model=c
-diff -Naur gcc-6.3.0-original/libstdc++-v3/crossconfig.m4 gcc-6.3.0/libstdc++-v3/crossconfig.m4
---- gcc-6.3.0-original/libstdc++-v3/crossconfig.m4	2015-10-12 01:34:28.000000000 +0300
-+++ gcc-6.3.0/libstdc++-v3/crossconfig.m4	2025-12-17 20:41:54.342134749 +0200
-@@ -182,6 +182,9 @@
+diff --git a/libstdc++-v3/crossconfig.m4 b/libstdc++-v3/crossconfig.m4
+index ece12567794..8d1512a4369 100644
+--- a/libstdc++-v3/crossconfig.m4
++++ b/libstdc++-v3/crossconfig.m4
+@@ -182,6 +182,10 @@ case "${host}" in
        AC_DEFINE(HAVE_ISNANL)
      fi
      ;;
 +  *-pedigree*)
 +    AC_CHECK_HEADERS([sys/types.h locale.h float.h])
++    GLIBCXX_CHECK_COMPLEX_MATH_SUPPORT
 +    ;;
    *-qnx6.1* | *-qnx6.2*)
      SECTION_FLAGS='-ffunction-sections -fdata-sections'
      AC_SUBST(SECTION_FLAGS) 
-diff -Naur gcc-6.3.0-original/libtool.m4 gcc-6.3.0/libtool.m4
---- gcc-6.3.0-original/libtool.m4	2015-11-26 15:20:59.000000000 +0200
-+++ gcc-6.3.0/libtool.m4	2025-12-17 20:42:23.575414378 +0200
-@@ -5377,7 +5377,9 @@
-   _LT_LINKER_SHLIBS($1)
-   _LT_SYS_DYNAMIC_LINKER($1)
-   _LT_LINKER_HARDCODE_LIBPATH($1)
--  LT_SYS_DLOPEN_SELF
-+  if test "$cross_compiling" = no; then
-+    LT_SYS_DLOPEN_SELF
-+  fi
-   _LT_CMD_STRIPLIB
- 
-   # Report which library types will actually be built
-diff -Naur gcc-6.3.0-original/gcc/config/pedigree.h gcc-6.3.0/gcc/config/pedigree.h
---- gcc-6.3.0-original/gcc/config/pedigree.h	1970-01-01 02:00:00.000000000 +0200
-+++ gcc-6.3.0/gcc/config/pedigree.h	2025-12-17 22:00:00.000000000 +0200
-@@ -0,0 +1,52 @@
-+/* Base configuration file for all Pedigree targets.
-+   Copyright (C) 2008-2016 Pedigree Developers.
-+
-+This file is part of GCC.
-+
-+GCC is free software; you can redistribute it and/or modify
-+it under the terms of the GNU General Public License as published by
-+the Free Software Foundation; either version 3, or (at your option)
-+any later version.
-+
-+GCC is distributed in the hope that it will be useful,
-+but WITHOUT ANY WARRANTY; without even the implied warranty of
-+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-+GNU General Public License for more details.
-+
-+You should have received a copy of the GNU General Public License
-+along with GCC; see the file COPYING3.  If not see
-+<http://www.gnu.org/licenses/>.  */
-+
-+/* Common Pedigree configuration.
-+   All Pedigree architectures should include this file, which will specify
-+   their commonalities.  */
-+
-+#undef TARGET_PEDIGREE
-+#define TARGET_PEDIGREE 1
-+
-+/* Default arguments for the preprocessor.  */
-+#undef  CPP_SPEC
-+#define CPP_SPEC "%(cpp_cpu) %{posix:-D_POSIX_SOURCE}"
-+
-+/* We don't have a libc yet, so don't try to link against it.  */
-+#undef  LIB_SPEC
-+#define LIB_SPEC ""
-+
-+/* Use --as-needed for linking libraries.  */
-+#ifdef HAVE_LD_AS_NEEDED
-+#define USE_LD_AS_NEEDED 1
-+#endif
-+
-+/* Pedigree uses ELF object file format.  */
-+#undef  OBJECT_FORMAT_ELF
-+#define OBJECT_FORMAT_ELF
-+
-+/* Don't assume anything about the system's header files.  */
-+#undef  NO_IMPLICIT_EXTERN_C
-+#define NO_IMPLICIT_EXTERN_C 1
-+
-+/* Pedigree follows standard ELF conventions.  */
-+#undef  WCHAR_TYPE
-+#define WCHAR_TYPE "int"
-+
-+#undef  WINT_TYPE
-+#define WINT_TYPE "unsigned int"
-diff -Naur gcc-6.3.0-original/gcc/ubsan.c gcc-6.3.0/gcc/ubsan.c
---- gcc-6.3.0-original/gcc/ubsan.c	2016-01-04 16:30:50.000000000 +0200
-+++ gcc-6.3.0/gcc/ubsan.c	2025-12-17 22:03:00.000000000 +0200
-@@ -1471,7 +1471,7 @@
- 
-   expanded_location xloc = expand_location (loc);
-   if (xloc.file == NULL || strncmp (xloc.file, "\1", 2) == 0
--      || xloc.file == '\0' || xloc.file[0] == '\xff'
-+      || xloc.file[0] == '\0' || xloc.file[0] == '\xff'
-       || xloc.file[1] == '\xff')
-     return false;
- 
