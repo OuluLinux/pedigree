@@ -60,7 +60,7 @@ class UniqueCommon
         }
     }
 
-    NOT_COPYABLE_OR_ASSIGNABLE(UniqueCommon<T>);
+    NOT_COPYABLE_OR_ASSIGNABLE(UniqueCommon);
 
   protected:
     UniqueCommon(T *p) : m_Pointer(p)
@@ -107,7 +107,7 @@ class UniquePointer : public UniqueCommon<T>
     }
 
     // no copy construction permitted
-    NOT_COPYABLE_OR_ASSIGNABLE(UniquePointer<T>);
+    NOT_COPYABLE_OR_ASSIGNABLE(UniquePointer);
 
     UniquePointer<T> &operator=(UniquePointer<T> &&p)
     {
@@ -155,7 +155,7 @@ class UniqueArray : public UniqueCommon<T>
     }
 
     // no copy construction permitted
-    NOT_COPYABLE_OR_ASSIGNABLE(UniqueArray<T>);
+    NOT_COPYABLE_OR_ASSIGNABLE(UniqueArray);
 
     UniqueArray<T> &operator=(UniqueArray<T> &&p)
     {
