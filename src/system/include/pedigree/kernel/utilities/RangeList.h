@@ -137,7 +137,10 @@ RangeList<T, Reversed>::RangeList(const RangeList<T, Reversed> &other)
     for (ConstIterator it = other.m_List.begin(); it != other.m_List.end();
          ++it)
     {
-        Range *pRange = new Range((*it)->address, (*it)->length);
+        const Range *range = *it;
+        T cur_address = range->address;
+        T cur_length = range->length;
+        Range *pRange = new Range(cur_address, cur_length);
         m_List.pushBack(pRange);
     }
 }
@@ -152,7 +155,10 @@ operator=(const RangeList &other)
     for (ConstIterator it = other.m_List.begin(); it != other.m_List.end();
          ++it)
     {
-        Range *pRange = new Range((*it)->address, (*it)->length);
+        const Range *range = *it;
+        T cur_address = range->address;
+        T cur_length = range->length;
+        Range *pRange = new Range(cur_address, cur_length);
         m_List.pushBack(pRange);
     }
 
@@ -171,20 +177,24 @@ void RangeList<T, Reversed>::free(T address, T length, bool merge)
         bool needsNew = true;
         for (; cur != end; ++cur)
         {
+            Range *range = *cur;
+            T cur_address = range->address;
+            T cur_length = range->length;
+
             // Region ends at our freed address.
-            if (((*cur)->address + (*cur)->length) == address)
+            if ((cur_address + cur_length) == address)
             {
                 // Update - all done.
-                (*cur)->length += length;
+                range->length += length;
                 needsNew = false;
                 break;
             }
             // Region starts after our address.
-            else if ((*cur)->address == (address + length))
+            else if (cur_address == (address + length))
             {
                 // Expand.
-                (*cur)->address -= length;
-                (*cur)->length += length;
+                range->address -= length;
+                range->length += length;
                 needsNew = false;
                 break;
             }
@@ -230,7 +240,11 @@ bool RangeList<T, Reversed>::allocate(T length, T &address)
 
         for (; it != end; ++it)
         {
-            if ((*it)->length < length)
+            Range *range = *it;
+            T cur_address = range->address;
+            T cur_length = range->length;
+
+            if (cur_length < length)
             {
                 continue;
             }
@@ -238,18 +252,18 @@ bool RangeList<T, Reversed>::allocate(T length, T &address)
             if (Reversed)
             {
                 // Big enough. Cut into the END of this range.
-                T offset = (*it)->length - length;
-                address = (*it)->address + offset;
+                T offset = cur_length - length;
+                address = cur_address + offset;
             }
             else
             {
-                address = (*it)->address;
-                (*it)->address += length;
+                address = cur_address;
+                range->address += length;
             }
-            (*it)->length -= length;
+            range->length -= length;
 
             // Remove if the entry no longer exists.
-            if (!(*it)->length)
+            if (!range->length)
             {
                 delete (*it);
                 m_List.erase(it);
@@ -284,45 +298,49 @@ bool RangeList<T, Reversed>::allocateSpecific(T address, T length)
     {
         for (Iterator cur = m_List.begin(); cur != m_List.end(); ++cur)
         {
+            Range *range = *cur;
+            T cur_address = range->address;
+            T cur_length = range->length;
+
             // Precise match.
-            if ((*cur)->address == address && (*cur)->length == length)
+            if (cur_address == address && cur_length == length)
             {
                 delete *cur;
-                m_List.erase(cur);
+                m_List.template erase(cur);
                 bSuccess = true;
                 break;
             }
 
             // Match at end.
             else if (
-                (*cur)->address < address &&
-                ((*cur)->address + (*cur)->length) == (address + length))
+                cur_address < address &&
+                (cur_address + cur_length) == (address + length))
             {
-                (*cur)->length -= length;
+                range->length -= length;
                 bSuccess = true;
                 break;
             }
 
             // Match at start.
-            else if ((*cur)->address == address && (*cur)->length > length)
+            else if (cur_address == address && cur_length > length)
             {
-                (*cur)->address += length;
-                (*cur)->length -= length;
+                range->address += length;
+                range->length -= length;
                 bSuccess = true;
                 break;
             }
 
             // Match within.
             else if (
-                (*cur)->address < address &&
-                ((*cur)->address + (*cur)->length) > (address + length))
+                cur_address < address &&
+                (cur_address + cur_length) > (address + length))
             {
                 // Need to split the range.
                 Range *newRange = new Range(
                     address + length,
-                    (*cur)->address + (*cur)->length - address - length);
-                (*cur)->length = address - (*cur)->address;
-                m_List.pushBack(newRange);
+                    cur_address + cur_length - address - length);
+                range->length = address - cur_address;
+                m_List.template pushBack(newRange);
                 bSuccess = true;
                 break;
             }
