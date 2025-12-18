@@ -101,7 +101,7 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                  'version_match' => "NASM version $nasm_version" },
                 {'dir' => "binutils-$binutils_version",
                  'name' => "Binutils",
-                 'configure' => "--target=\$TARGET $binutils_configure_special --prefix=\$PREFIX --disable-nls --enable-gold --enable-ld --with-sysroot --enable-lto --disable-werror",
+                 'configure' => "--target=\$TARGET $binutils_configure_special --prefix=\$PREFIX --disable-nls --enable-gold --enable-ld --with-sysroot --disable-lto --disable-werror",
                  'make' => "all",
                  'install' => "install",
                  'arch' => 'all',
@@ -110,7 +110,7 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                  'version_match' => "GNU objdump (GNU Binutils) $binutils_version"},
                 {'dir' => "gcc-$gcc_version",
                  'name' => "Gcc",
-                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c,c++ --without-headers --without-newlib --enable-lto",
+                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c,c++ --without-headers --without-newlib --disable-lto",
                  'make' => "all-gcc all-target-libgcc",
                  'install' => "install-gcc install-target-libgcc",
                  'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree arm-pedigree i686-elf amd64-elf arm-elf ppc-elf powerpc-elf',
@@ -256,10 +256,12 @@ foreach (@patch) {
 
   if ($patch{arch} =~ m/($target)|(all)/i) {
     if (-f "./compilers/dir/build_tmp/$patch{cwd}/.patched") {
-      # TODO: we can only do this if the patch is older than
-      # .patched - if the patch is newer we need to redo this.
-      # next;
+      # Skip if already patched successfully
+      next;
     }
+
+    # Clean up files that the patch will create, to avoid conflicts
+    `cd ./compilers/dir/build_tmp/$patch{cwd}; rm -f gcc/config/pedigree.h gcc/config/t-pedigree ld/emulparams/pedigree_*.sh 2>/dev/null`;
 
     print "$patch{name} ";
     my $stdout = `cd ./compilers/dir/build_tmp/$patch{cwd}; patch $patch{flags} < $prefix/compilers/$patch{input} 2>&1 && touch .patched`;
