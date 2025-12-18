@@ -324,6 +324,10 @@ foreach (@compile) {
       print "Failed. Output: $stdout\n";
       exit 1;
     }
+    # Create dummy fixincludes Makefile for GCC 9+ cross-compilers
+    if ($compile{dir} =~ /^gcc-/ && !(-d "$build_dir/fixincludes")) {
+      `mkdir -p $build_dir/fixincludes && echo 'install:\n\t@true' > $build_dir/fixincludes/Makefile`;
+    }
     print "Compiling ";
     $stdout = `cd $build_dir; make $compile{make} 2>&1 & pid=\$!; while kill -0 \$pid >/dev/null 2>&1; do printf "." 1>&2; sleep 10; done`;
     if ($? != 0) {
