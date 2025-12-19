@@ -276,6 +276,34 @@ foreach (@patch) {
   }
 }
 
+# Some binutils releases regenerate ld/Makefile.in during packaging and drop
+# the pedigree emulation entries. Ensure they exist even if the patch above
+# does not add them (idempotent when already present).
+my $ld_makefile = "./compilers/dir/build_tmp/binutils-$binutils_version/ld/Makefile.in";
+if (-f $ld_makefile)
+{
+  `grep -q 'epedigree_arm.c' $ld_makefile || sed -i '/earmpe.c/a\\\tepedigree_arm.c \\\\' $ld_makefile`;
+  `grep -q 'epedigree_x86_64.c' $ld_makefile || sed -i '/eelf_x86_64_cloudabi.c/a\\\tepedigree_x86_64.c \\\\' $ld_makefile`;
+}
+
+my $ld_emulparams = "./compilers/dir/build_tmp/binutils-$binutils_version/ld/emulparams/pedigree_x86_64.sh";
+if (-f $ld_emulparams)
+{
+  `sed -i 's/^TEMPLATE_NAME=.*/TEMPLATE_NAME=elf/' $ld_emulparams`;
+}
+
+my $gcc_src = "./compilers/dir/build_tmp/gcc-$gcc_version";
+if (-f "$gcc_src/gcc/config.gcc")
+{
+  my $has_pedigree = system("grep -q pedigree $gcc_src/gcc/config.gcc") == 0;
+  if (!$has_pedigree)
+  {
+    system("cd $gcc_src && patch -N -p1 < $prefix/compilers/pedigree-gcc.patch && touch .patched");
+    $has_pedigree = system("grep -q pedigree $gcc_src/gcc/config.gcc") == 0;
+    die "Failed to apply pedigree GCC patch\n" unless $has_pedigree;
+  }
+}
+
 print "\n";
 
 # Run everything we need to.
@@ -325,11 +353,17 @@ foreach (@compile) {
       exit 1;
     }
     # Create dummy fixincludes Makefile for GCC 9+ cross-compilers
-    if ($compile{dir} =~ /^gcc-/ && !(-d "$build_dir/fixincludes")) {
-      `mkdir -p $build_dir/fixincludes && echo 'install:\n\t@true' > $build_dir/fixincludes/Makefile`;
+    if ($compile{dir} =~ /^gcc-/ && !(-f "$build_dir/fixincludes/Makefile")) {
+      `mkdir -p "$build_dir/fixincludes"`;
+      open(my $fh, '>', "$build_dir/fixincludes/Makefile") or die "Cannot open $build_dir/fixincludes/Makefile: $!";
+      print $fh "all:\n";
+      print $fh "\t\@true\n\n";
+      print $fh "install:\n";
+      print $fh "\t\@true\n";
+      close($fh);
     }
     print "Compiling ";
-    $stdout = `cd $build_dir; make $compile{make} 2>&1 & pid=\$!; while kill -0 \$pid >/dev/null 2>&1; do printf "." 1>&2; sleep 10; done`;
+    $stdout = `cd $build_dir && make $compile{make} 2>&1`;
     if ($? != 0) {
       print "Failed. Output: $stdout\n";
       exit 1;

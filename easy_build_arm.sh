@@ -46,7 +46,7 @@ if [ -d "src/modules/drivers/cdi" ]; then
     git pull || echo "Failed to update cdi."
     cd ${old}
 else
-    git clone git://git.tyndur.org/cdi.git src/modules/drivers/cdi || echo "Failed to clone cdi, cdi will not be part of your build."
+    git clone https://git.tyndur.org/lowlevel/cdi.git src/modules/drivers/cdi || echo "Failed to clone cdi, cdi will not be part of your build."
 fi
 
 set -e

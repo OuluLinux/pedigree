@@ -33,6 +33,7 @@ esac
 # Install cross-compilers
 $script_dir/scripts/checkBuildSystemNoInteractive.pl x86_64-pedigree $COMPILER_DIR $compiler_build_options
 
+
 old=$(pwd)
 
 # Fix up POSIX headers which sometimes get a recursive symlink.

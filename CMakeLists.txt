@@ -1,3 +1,5 @@
+cmake_minimum_required(VERSION 3.5)
+
 # Add our internal CMake modules path before project() to enable our custom platform
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
 
@@ -7,7 +9,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set (CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 project(Pedigree)
-cmake_minimum_required(VERSION 3.3)
 
 if (NOT CMAKE_CXX_COMPILER_VERSION)
     # TODO: keep this up to date with checkBuildSystemNoInteractive.pl

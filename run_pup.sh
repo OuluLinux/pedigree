@@ -32,5 +32,25 @@ fi
 
 set -e
 
-python3 "$PUP/pedigree_updater" --config="$DIR/scripts/pup/pup.conf" $*
+python3 - <<'PY'
+import importlib
+import subprocess
+import sys
 
+try:
+    importlib.import_module('requests')
+except ImportError:
+    try:
+        importlib.import_module('pip')
+    except ImportError:
+        import ensurepip
+        ensurepip.bootstrap()
+    in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+    pip_cmd = [sys.executable, "-m", "pip", "install"]
+    if not in_venv:
+        pip_cmd.append("--user")
+    pip_cmd.append("requests")
+    subprocess.check_call(pip_cmd)
+PY
+
+python3 "$PUP/pedigree_updater" --config="$DIR/scripts/pup/pup.conf" $*

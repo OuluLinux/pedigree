@@ -25,9 +25,9 @@ import os
 import sys
 
 try:
-  from ConfigParser import SafeConfigParser
+  from configparser import ConfigParser
 except ImportError:
-  from configparser import SafeConfigParser
+  from ConfigParser import SafeConfigParser as ConfigParser
 
 
 def main():
@@ -41,7 +41,7 @@ def main():
     if len(sys.argv) > 1:
         target_arch = sys.argv[1]
 
-    cfg = SafeConfigParser()
+    cfg = ConfigParser()
     cfg.read(pupConfigDefault)
 
     cfg.set('paths', 'installroot', '%s/images/local' % scriptdir)
@@ -57,4 +57,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
