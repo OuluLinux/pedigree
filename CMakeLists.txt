@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10...3.28)
 
 # Add our internal CMake modules path before project() to enable our custom platform
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/build-etc/cmake")
@@ -23,7 +23,7 @@ include(FindGettext)
 
 find_package(BISON)
 find_package(FLEX)
-find_package(PythonInterp)
+find_package(Python3 COMPONENTS Interpreter)
 find_program(MKISOFS NAMES mkisofs genisoimage xorriso)
 
 find_library(LIBRT rt)
@@ -124,15 +124,19 @@ endif ()
 set(GENERIC_WARNING_FLAGS "-Wall" "-Wextra" "-Wpointer-arith" "-Wcast-align" "-Wwrite-strings" "-Wno-long-long" "-Wvariadic-macros" "-Wno-unused-parameter" "-Wuninitialized" "-Wstrict-aliasing" "-Wfloat-equal" "-Wcast-qual" "-Wdisabled-optimization" ${COMPILER_SPECIFIC_WARNINGS})
 set(GENERIC_WARNING_CFLAGS "-Wnested-externs" "-Wbad-function-cast" ${COMPILER_SPECIFIC_WARNINGS_C})
 set(GENERIC_WARNING_CXXFLAGS "-Wsign-promo" "-Woverloaded-virtual" "-Wnon-virtual-dtor" "-Wctor-dtor-privacy" "-Wabi" "-Wno-ctor-dtor-privacy" ${COMPILER_SPECIFIC_WARNINGS_CXX})
-set(GENERIC_WARNING_DISABLES "-Wno-unused" "-Wno-unused-variable" "-Wno-conversion" "-Wno-format" "-Wno-error=disabled-optimization" "-Wno-error=deprecated-declarations" "-Wno-abi" "-Wno-address-of-packed-member" ${COMPILER_SPECIFIC_WARNING_DISABLES})
+set(GENERIC_WARNING_DISABLES "-Wno-unused" "-Wno-unused-variable" "-Wno-conversion" "-Wno-format" "-Wno-error=disabled-optimization" "-Wno-error=deprecated-declarations" "-Wno-abi" "-Wno-address-of-packed-member" "-Wno-deprecated-copy" ${COMPILER_SPECIFIC_WARNING_DISABLES})
 
 # Prepare flags for all builds across the entire project.
 set(GENERIC_CFLAGS
     ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CFLAGS} ${GENERIC_WARNING_FLAGS}
     ${GENERIC_WARNING_CFLAGS} ${GENERIC_WARNING_DISABLES})
+# For C++ files, add the deprecated copy warning disable (but not for C files)
 set(GENERIC_CXXFLAGS ${GENERIC_COMPILE_FLAGS} ${GENERIC_COMPILE_CXXFLAGS}
     ${GENERIC_WARNING_FLAGS} ${GENERIC_WARNING_CXXFLAGS}
     ${GENERIC_WARNING_DISABLES})
+# Make the deprecated copy warning disable only for C++ files, not C files
+string(REPLACE "-Wno-deprecated-copy" "" GENERIC_CFLAGS_NO_DEPRECATED_COPY "${GENERIC_CFLAGS}")
+set(GENERIC_CFLAGS ${GENERIC_CFLAGS_NO_DEPRECATED_COPY})
 
 # Set up include directories for most targets
 include_directories(src src/system/include)
@@ -216,7 +220,7 @@ if(CMAKE_CROSSCOMPILING)
 
     # Build config database.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/config.db
-        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_db.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_db.py
         ${CMAKE_CURRENT_BINARY_DIR}/config.db
         ${CMAKE_SOURCE_DIR}/src/system/kernel/schema
         ${CMAKE_SOURCE_DIR}/src/modules/drivers/x86/vbe/schema
@@ -263,7 +267,7 @@ if(CMAKE_CROSSCOMPILING)
 
     # Build hard disk image ready for a live CD or imaging.
     add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/hdd.img
-        COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/create_diskimage.py
         ${CMAKE_CURRENT_BINARY_DIR}/hdd.img  # => target image
         $<TARGET_FILE:host-ext2img>  # => ext2img binary
         ${PEDIGREE_IMAGESDIR}  # => image tree directory

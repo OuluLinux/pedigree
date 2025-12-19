@@ -219,7 +219,7 @@ function(SETUP_TARGET_FOR_COVERAGE_COBERTURA)
     add_custom_target(${Coverage_NAME}
 
         # Run tests
-        ${Coverage_EXECUTABLE}
+        COMMAND ${Coverage_EXECUTABLE}
 
         # Running gcovr
         COMMAND ${GCOVR_PATH} -x -r ${CMAKE_SOURCE_DIR} ${COBERTURA_EXCLUDES}

@@ -46,6 +46,7 @@
 
 #if HAVE_OPENSSL
 #include <openssl/sha.h>
+#include <openssl/evp.h>
 #endif
 
 #define FS_ALIAS "fs"
@@ -540,8 +541,10 @@ void checksumFile(File *pFile)
 {
     uint8_t hash[SHA256_DIGEST_LENGTH];
 
-    SHA256_CTX ctx;
-    SHA256_Init(&ctx);
+    // Use EVP API instead of deprecated low-level functions
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    const EVP_MD *md = EVP_sha256();
+    EVP_DigestInit_ex(ctx, md, NULL);
 
     size_t blockSize = pFile->getBlockSize() * blocksPerRead;
     uint8_t *buffer = new uint8_t[blockSize];
@@ -557,7 +560,7 @@ void checksumFile(File *pFile)
             break;
         }
 
-        SHA256_Update(&ctx, buffer, numBytes);
+        EVP_DigestUpdate(ctx, buffer, numBytes);
 
         if (numBytes < blockSize)
         {
@@ -569,7 +572,9 @@ void checksumFile(File *pFile)
 
     delete[] buffer;
 
-    SHA256_Final(hash, &ctx);
+    unsigned int hash_len;
+    EVP_DigestFinal_ex(ctx, hash, &hash_len);
+    EVP_MD_CTX_free(ctx);
 
     String fullPath;
     pFile->getFullPath(fullPath);

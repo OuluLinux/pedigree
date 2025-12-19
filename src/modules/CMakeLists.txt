@@ -187,6 +187,10 @@ if (PEDIGREE_STATIC_DRIVERS)
     set_source_files_properties(${CMAKE_BINARY_DIR}/embedconfigdb.c PROPERTIES GENERATED 1)
 endif ()
 
+# Add warning suppression flags for the sqlite3.c file since it's a third-party library that produces various warnings
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/system/config/sqlite3/sqlite3.c PROPERTIES
+    COMPILE_FLAGS "-Wno-cast-function-type -Wno-discarded-qualifiers -Wno-float-equal -Wno-bad-function-cast -Wno-misleading-indentation -Wno-parentheses -Wno-strict-prototypes")
+
 pedigree_module(config "-w;-Os" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/config/main.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/config/Config.cc
@@ -524,7 +528,7 @@ target_link_libraries(vdso PRIVATE gcc
 add_dependencies(vdso libc)
 
 add_custom_command(OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
-    COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/genvdso.py $<TARGET_FILE:vdso> ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/scripts/genvdso.py $<TARGET_FILE:vdso> ${CMAKE_CURRENT_BINARY_DIR}/vdso.h
     DEPENDS vdso)
 
 pedigree_module(posix "" ""

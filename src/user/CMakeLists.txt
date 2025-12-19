@@ -78,6 +78,7 @@ endfunction()
 
 # libraries
 
+if (PEDIGREE_GRAPHICS)
 pedigree_lib(fb "" ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libfb/src/fb.cc)
 pedigree_lib(tui "libui"
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libtui/src/environment.cc
@@ -93,21 +94,25 @@ pedigree_lib(ui "native-user"
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui/src/TextWidget.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui/src/Widget.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/libraries/libui/src/Window.cc)
+endif()
 
 # apps
 
-set(PANGO_LIBS "pangocairo-1.0;pangoft2-1.0;pango-1.0;harfbuzz;fontconfig;gobject-2.0;glib-2.0;ffi")
-
-pedigree_app(TUI ON ON OFF "libui;libtui;cairo;${PANGO_LIBS};freetype;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/TUI/main.cc)
 pedigree_app(apptest ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/apptest/main.cc)
 pedigree_app(cdhelp ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/cdhelp/main.c)
 pedigree_app(config ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/config/main.cc)
 pedigree_app(crashtest ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/crashtest/main.c)
 pedigree_app(display ON OFF OFF-mode "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/display-mode/main.c)
 # pedigree_app(fire ON OFF OFF "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/fire/fire.c)
+pedigree_app(init ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/init/main.c)
+
+if (PEDIGREE_GRAPHICS)
+set(PANGO_LIBS "pangocairo-1.0;pangoft2-1.0;pango-1.0;harfbuzz;fontconfig;gobject-2.0;glib-2.0;ffi")
+
+pedigree_app(TUI ON ON OFF "libui;libtui;cairo;${PANGO_LIBS};freetype;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/TUI/main.cc)
 pedigree_app(gears ON ON OFF "libui;OSMesa;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/gears/gears.cc)
 pedigree_app(gfxcon ON ON OFF "libui;libfb;libtui;cairo;${PANGO_LIBS};freetype;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/gfxcon/main.cc)
-pedigree_app(init ON OFF ON "" ${CMAKE_CURRENT_SOURCE_DIR}/applications/init/main.c)
+endif()
 pedigree_app(ipc-test-client ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-test-client/main.cc)
 pedigree_app(ipc-test-server ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ipc-test-server/main.cc)
 pedigree_app(keymap ON OFF ON ""
@@ -135,11 +140,13 @@ pedigree_app(thread-test ON OFF OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applica
 pedigree_app(tour ON OFF OFF "intl;dialog;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/tour/main.cc)
 pedigree_app(ttyterm ON ON OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/ttyterm/ttyterm.cc)
 pedigree_app(uitest ON ON OFF "libui;stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/uitest/main.cc)
+if (PEDIGREE_GRAPHICS)
 pedigree_app(winman ON ON OFF "libui;libfb;png;cairo;${PANGO_LIBS};freetype;stdc++"
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/Png.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/objects.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/util.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/applications/winman/winman.cc)
+endif()
 pedigree_app(which ON OFF OFF "stdc++" ${CMAKE_CURRENT_SOURCE_DIR}/applications/which/main.cc)
 
 pedigree_keymap(KeymapDeDe ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/keymaps/KeymapDeDe)

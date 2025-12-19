@@ -84,13 +84,15 @@ echo
 echo "Configuring the Pedigree UPdater..."
 
 $script_dir/setup_pup.py amd64
-$script_dir/run_pup.sh sync
+
+# Try to sync packages, but continue if the server is unreachable
+$script_dir/run_pup.sh sync || echo "Warning: Could not sync packages from server. Continuing with build..."
 
 # Needed for libc
-$script_dir/run_pup.sh install ncurses
+$script_dir/run_pup.sh install ncurses || echo "Warning: Could not install ncurses from server. Continuing with build..."
 
 # Pull down libtool.
-$script_dir/run_pup.sh install libtool
+$script_dir/run_pup.sh install libtool || echo "Warning: Could not install libtool from server. Continuing with build..."
 
 
 # Enforce using our libtool.
@@ -117,30 +119,30 @@ git submodule update > /dev/null 2>&1
 echo
 echo "Installing a base set of packages..."
 
-$script_dir/run_pup.sh install pedigree-base
-$script_dir/run_pup.sh install libpng
-$script_dir/run_pup.sh install libfreetype
-$script_dir/run_pup.sh install libiconv
-$script_dir/run_pup.sh install zlib
+$script_dir/run_pup.sh install pedigree-base || echo "Warning: Could not install pedigree-base. Some functionality may be missing."
+$script_dir/run_pup.sh install libpng || echo "Warning: Could not install libpng. Some functionality may be missing."
+$script_dir/run_pup.sh install libfreetype || echo "Warning: Could not install libfreetype. Some functionality may be missing."
+$script_dir/run_pup.sh install libiconv || echo "Warning: Could not install libiconv. Some functionality may be missing."
+$script_dir/run_pup.sh install zlib || echo "Warning: Could not install zlib. Some functionality may be missing."
 
-$script_dir/run_pup.sh install bash
-$script_dir/run_pup.sh install coreutils
-$script_dir/run_pup.sh install fontconfig
-$script_dir/run_pup.sh install pixman
-$script_dir/run_pup.sh install cairo
-$script_dir/run_pup.sh install expat
-$script_dir/run_pup.sh install mesa
-$script_dir/run_pup.sh install gettext
+$script_dir/run_pup.sh install bash || echo "Warning: Could not install bash. Some functionality may be missing."
+$script_dir/run_pup.sh install coreutils || echo "Warning: Could not install coreutils. Some functionality may be missing."
+$script_dir/run_pup.sh install fontconfig || echo "Warning: Could not install fontconfig. Some functionality may be missing."
+$script_dir/run_pup.sh install pixman || echo "Warning: Could not install pixman. Some functionality may be missing."
+$script_dir/run_pup.sh install cairo || echo "Warning: Could not install cairo. Some functionality may be missing."
+$script_dir/run_pup.sh install expat || echo "Warning: Could not install expat. Some functionality may be missing."
+$script_dir/run_pup.sh install mesa || echo "Warning: Could not install mesa. Some functionality may be missing."
+$script_dir/run_pup.sh install gettext || echo "Warning: Could not install gettext. Some functionality may be missing."
 
-$script_dir/run_pup.sh install pango
-$script_dir/run_pup.sh install glib
-$script_dir/run_pup.sh install libpcre
-$script_dir/run_pup.sh install harfbuzz
-$script_dir/run_pup.sh install libffi
-$script_dir/run_pup.sh install dialog
+$script_dir/run_pup.sh install pango || echo "Warning: Could not install pango. Some functionality may be missing."
+$script_dir/run_pup.sh install glib || echo "Warning: Could not install glib. Some functionality may be missing."
+$script_dir/run_pup.sh install libpcre || echo "Warning: Could not install libpcre. Some functionality may be missing."
+$script_dir/run_pup.sh install harfbuzz || echo "Warning: Could not install harfbuzz. Some functionality may be missing."
+$script_dir/run_pup.sh install libffi || echo "Warning: Could not install libffi. Some functionality may be missing."
+$script_dir/run_pup.sh install dialog || echo "Warning: Could not install dialog. Some functionality may be missing."
 
 # Install GCC to pull in shared libstdc++.
-$script_dir/run_pup.sh install gcc
+$script_dir/run_pup.sh install gcc || echo "Warning: Could not install gcc. Some functionality may be missing."
 
 set -e
 
