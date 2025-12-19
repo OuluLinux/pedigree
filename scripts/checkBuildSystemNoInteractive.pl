@@ -121,7 +121,7 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
                 {'dir' => "gcc-$gcc_version",
                  'ok' => $gcc_libcpp_make ne "",
                  'name' => "libstdc++",
-                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c++ --without-newlib --disable-libstdcxx-pch --enable-shared --enable-lto",
+                 'configure' => "--target=\$TARGET $gcc_configure_special --prefix=\$PREFIX --disable-nls --enable-languages=c++ --disable-libstdcxx-pch --enable-shared --enable-lto --with-sysroot",
                  'make' => "$gcc_libcpp_make",
                  'install' => "$gcc_libcpp_install",
                  'arch' => 'i686-pedigree amd64-pedigree x86_64-pedigree arm-pedigree i686-elf amd64-elf arm-elf ppc-elf powerpc-elf',
@@ -347,15 +347,23 @@ foreach (@compile) {
     if (defined $compile{inplace} and $compile{inplace}) {
       $build_dir = "./compilers/dir/build_tmp/$compile{dir}";
     }
-    $stdout = `export PREFIX=$prefix/compilers/dir; export TARGET=$target; cd $build_dir; ../$compile{dir}/configure $compile{configure} 2>&1`;
+    # Use separate build directory for libstdc++ to avoid GCC_NO_EXECUTABLES issues
+    my $actual_build_dir = $build_dir;
+    if ($compile{name} eq "libstdc++") {
+        $actual_build_dir = "./compilers/dir/build_tmp/libstdc++-build";
+        `rm -rf $actual_build_dir`;
+        `mkdir -p $actual_build_dir`;
+    }
+
+    $stdout = `export PREFIX=$prefix/compilers/dir; export TARGET=$target; cd $actual_build_dir; ../$compile{dir}/configure $compile{configure} 2>&1`;
     if ($? != 0) {
       print "Failed. Output: $stdout\n";
       exit 1;
     }
     # Create dummy fixincludes Makefile for GCC 9+ cross-compilers
-    if ($compile{dir} =~ /^gcc-/ && !(-f "$build_dir/fixincludes/Makefile")) {
-      `mkdir -p "$build_dir/fixincludes"`;
-      open(my $fh, '>', "$build_dir/fixincludes/Makefile") or die "Cannot open $build_dir/fixincludes/Makefile: $!";
+    if ($compile{dir} =~ /^gcc-/ && !(-f "$actual_build_dir/fixincludes/Makefile")) {
+      `mkdir -p "$actual_build_dir/fixincludes"`;
+      open(my $fh, '>', "$actual_build_dir/fixincludes/Makefile") or die "Cannot open $actual_build_dir/fixincludes/Makefile: $!";
       print $fh "all:\n";
       print $fh "\t\@true\n\n";
       print $fh "install:\n";
@@ -363,13 +371,13 @@ foreach (@compile) {
       close($fh);
     }
     print "Compiling ";
-    $stdout = `cd $build_dir && make $compile{make} 2>&1`;
+    $stdout = `cd $actual_build_dir && make $compile{make} 2>&1`;
     if ($? != 0) {
       print "Failed. Output: $stdout\n";
       exit 1;
     }
     print "Installing";
-    $stdout = `cd $build_dir; make $compile{install} 2>&1`;
+    $stdout = `cd $actual_build_dir; make $compile{install} 2>&1`;
     if ($? != 0) {
       print "Failed. Output: $stdout\n";
       exit 1;
