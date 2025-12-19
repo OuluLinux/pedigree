@@ -3,6 +3,12 @@
 # Fix executable path as compilers are most likely not present in $PATH right now.
 export PATH="$SRCDIR/compilers/dir/bin:$PATH"
 
+# Check if musl is already built by verifying key output files exist
+if [ -f "$TARGETDIR/lib/libc.so" ] && [ -f "$TARGETDIR/lib/libc.a" ] && [ -f "$TARGETDIR/lib/crt1.o" ]; then
+    echo "Musl libc already built. Skipping build."
+    exit 0
+fi
+
 cp "$SRCDIR/src/modules/subsys/posix/musl/glue-musl.c" src/internal/pedigree-musl.c
 cp "$SRCDIR/src/modules/subsys/posix/musl/syscall_arch.h" arch/x86_64/syscall_arch.h
 

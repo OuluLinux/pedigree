@@ -3,6 +3,12 @@
 # Fix executable path as compilers are most likely not present in $PATH right now.
 export PATH="$SRCDIR/compilers/dir/bin:$PATH"
 
+# Check if newlib is already built by verifying key output files exist
+if [ -f "$DROPDIR/stock-libg.a" ] && [ -f "$DROPDIR/stock-libm.a" ]; then
+    echo "Newlib already built. Skipping build."
+    exit 0
+fi
+
 # Fix include path so newlib's own headers don't override Pedigree's.
 CC_VERSION=`$XGCC -dumpversion`
 XGCC="$XGCC -nostdinc -nostdlib"

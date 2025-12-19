@@ -48,11 +48,29 @@ $script_dir/run_pup.py sync
 # Needed for libc
 $script_dir/run_pup.py install ncurses
 
-# Run a quick build of libc and libm for the rest of the build system.
-scons hosted=1 CROSS=$script_dir/compilers/dir/bin/x86_64-pedigree- build/musl/lib/libc.so
+# Run a quick build of libc and libm for the rest of the build system only if it hasn't been built already.
+if [ ! -f "$script_dir/build/musl/lib/libc.so" ] || [ ! -f "$script_dir/build/musl/lib/libc.a" ]; then
+    echo "Building libc/libm..."
+    scons hosted=1 CROSS=$script_dir/compilers/dir/bin/x86_64-pedigree- build/musl/lib/libc.so
+else
+    echo "libc/libm already built. Skipping."
+fi
 
 # Pull down libtool.
-$script_dir/run_pup.py install libtool
+if ! $script_dir/run_pup.py install libtool; then
+    echo "Warning: Could not install libtool from server. Attempting to build from source..."
+
+    # Try to build libtool from source
+    if [ -f "$script_dir/scripts/build-libtool.sh" ]; then
+        echo "Building libtool from source..."
+        # Create external directory for libtool build
+        mkdir -p "$script_dir/external"
+        # Build libtool with appropriate parameters
+        SRCDIR="$script_dir" TARGETDIR="$script_dir/../images/local" bash "$script_dir/scripts/build-libtool.sh"
+    else
+        echo "libtool build script not found. Continuing without libtool..."
+    fi
+fi
 
 # Enforce using our libtool.
 export LIBTOOL=$script_dir/../images/local/applications:$PATH

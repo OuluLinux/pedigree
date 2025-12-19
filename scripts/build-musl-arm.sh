@@ -2,6 +2,12 @@
 
 set +v
 
+# Check if musl is already built by verifying key output files exist
+if [ -f "$TARGETDIR/lib/libc.so" ] && [ -f "$TARGETDIR/lib/libc.a" ] && [ -f "$TARGETDIR/lib/crt1.o" ]; then
+    echo "Musl libc already built. Skipping build."
+    exit 0
+fi
+
 # Patch musl if we didn't already
 if [ ! -e ".patched" ]; then
     patch -p1 <"$SRCDIR/compilers/pedigree-musl.patch"

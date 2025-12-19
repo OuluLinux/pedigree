@@ -69,12 +69,30 @@ cd ..
 mkdir -p build && cd build
 cmake -DCMAKE_TOOLCHAIN_FILE=../build-etc/cmake/pedigree_arm.cmake -DIMPORT_EXECUTABLES=../build-host/HostUtilities.cmake $TRAVIS_OPTIONS ..
 
-# Build libc/libm
-make libc
+# Build libc/libm only if it hasn't been built already
+if [ ! -f "../build/musl/lib/libc.so" ] || [ ! -f "../build/musl/lib/libc.a" ]; then
+    echo "Building libc/libm..."
+    make libc
+else
+    echo "libc/libm already built. Skipping."
+fi
 cd ..
 
 # Pull down libtool.
-$script_dir/run_pup.py install libtool
+if ! $script_dir/run_pup.py install libtool; then
+    echo "Warning: Could not install libtool from server. Attempting to build from source..."
+
+    # Try to build libtool from source
+    if [ -f "$script_dir/scripts/build-libtool.sh" ]; then
+        echo "Building libtool from source..."
+        # Create external directory for libtool build
+        mkdir -p "$script_dir/external"
+        # Build libtool with appropriate parameters
+        SRCDIR="$script_dir" TARGETDIR="$script_dir/../images/local" bash "$script_dir/scripts/build-libtool.sh"
+    else
+        echo "libtool build script not found. Continuing without libtool..."
+    fi
+fi
 
 # Enforce using our libtool.
 export LIBTOOL=$script_dir/../images/local/applications:$PATH
