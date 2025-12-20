@@ -108,12 +108,14 @@ Provide both editor and direct text workflows for quick updates.
 
 - [ ] **eb3.3: Profile + keyword handling**
 
-## Track: Kernel + Prereqs + PUP Pipeline
+## Track: Kernel + Prereqs + PUP Pipeline 🚧 **[In Progress]**
 
 - *track_id*: *build-pipeline*
 - *priority*: 0
-- *status*: *planned*
+- *status*: *in_progress*
 - *completion*: 0%
+- *status_summary*: *Status badge sync*
+- *status_changed*: *2025-12-20T22:43:57*
 
 Ensure track/phase/task entries can be created, edited, and reorganized from the CLI.
 Provide both editor and direct text workflows for quick updates.
@@ -144,11 +146,13 @@ Provide both editor and direct text workflows for quick updates.
 
 - [ ] **bp2.3: Kernel artifact packaging**
 
-### Phase bp3: PUP Packages Integration
+### Phase bp3: PUP Packages Integration 🚧 **[In Progress]**
 
 - *phase_id*: *bp3*
-- *status*: *planned*
+- *status*: *in_progress*
 - *completion*: 0
+- *status_summary*: *Status badge sync*
+- *status_changed*: *2025-12-20T22:43:46*
 
 
 - [ ] **bp3.1: PUP package inventory**
@@ -157,7 +161,7 @@ Provide both editor and direct text workflows for quick updates.
 
 - [ ] **bp3.3: PUP pipeline integration**
 
-- [ ] **bp3.4: PUP ebuild: apache2**
+- [x] **bp3.4: PUP ebuild: apache2**
   - Package file: ../pedigree-apps/packages/apache2/package.py
 
 - [ ] **bp3.5: PUP ebuild: apr**
@@ -400,4 +404,3 @@ Provide both editor and direct text workflows for quick updates.
 
 
 ---
-

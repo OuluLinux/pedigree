@@ -1,10 +1,12 @@
-# Phase bp3: PUP Packages Integration 📋 **[Planned]**
+# Phase bp3: PUP Packages Integration 🚧 **[In Progress]**
 
 - *phase_id*: *bp3*
 - *track*: *Kernel + Prereqs + PUP Pipeline*
 - *track_id*: *build-pipeline*
-- *status*: *planned*
+- *status*: *in_progress*
 - *completion*: 0
+- *status_summary*: *Status badge sync*
+- *status_changed*: *2025-12-20T22:43:46*
 
 ## Tasks
 
@@ -674,11 +676,13 @@
 - Package file: ../pedigree-apps/packages/atk/package.py
 
 
-### Task bp3.5: PUP ebuild: apr
+### Task bp3.5: PUP ebuild: apr 🚧 **[In Progress]**
 
 - *task_id*: *bp3.5*
 - *priority*: *P2*
-- *status*: *planned*
+- *status*: *in_progress*
+- *status_summary*: *Badge check*
+- *status_changed*: *2025-12-20T22:44:04*
 
 - Package file: ../pedigree-apps/packages/apr/package.py
 
@@ -687,7 +691,9 @@
 
 - *task_id*: *bp3.4*
 - *priority*: *P2*
-- *status*: *planned*
+- *status*: *done*
+- *status_summary*: *Verified apache2 ebuild mapping*
+- *status_changed*: *2025-12-20T22:38:49*
 
 - Package file: ../pedigree-apps/packages/apache2/package.py
 
