@@ -8,9 +8,54 @@
 # Use English locale for consistent error messages
 export LC_ALL=C.UTF-8
 
+# Parse command line arguments
+CLEAN_ONLY=0
+for arg in "$@"; do
+    case $arg in
+        --clean)
+            CLEAN_ONLY=1
+            shift
+            ;;
+        *)
+            # Ignore other arguments for now
+            ;;
+    esac
+done
+
 old=$(pwd)
 script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P) && script_dir=$script_dir
 cd $old
+
+# Function to perform cleanup
+clean_build() {
+    echo "Cleaning build artifacts..."
+
+    # Remove build directories
+    rm -rf build-host
+    rm -rf build
+    rm -rf external
+
+    # Remove compiler build temporary files
+    if [ -d "$script_dir/pedigree-compiler/build_tmp" ]; then
+        rm -rf "$script_dir/pedigree-compiler/build_tmp"
+    fi
+
+    # Remove compiler directory if it exists
+    if [ -L "$script_dir/compilers/dir" ]; then
+        compiler_dir=$(readlink "$script_dir/compilers/dir")
+        if [ -d "$compiler_dir/build_tmp" ]; then
+            rm -rf "$compiler_dir/build_tmp"
+        fi
+    fi
+
+    echo "Build artifacts cleaned."
+}
+
+# If --clean flag is provided, clean and exit
+if [ $CLEAN_ONLY -eq 1 ]; then
+    clean_build
+    exit 0
+fi
 
 COMPILER_DIR=$script_dir/pedigree-compiler
 . $script_dir/build-etc/travis.sh
@@ -103,33 +148,57 @@ echo "Ensuring CDI is up-to-date."
 git submodule init > /dev/null 2>&1
 git submodule update > /dev/null 2>&1
 
+# Function to check if packages exist in pedigree-apps and install from there if needed
+install_package_from_local() {
+    local package=$1
+
+    # Try pup install first
+    if $script_dir/run_pup.sh install $package; then
+        verbose "Successfully installed $package from server."
+    else
+        # If server fails, try to install from local pedigree-apps if available
+        if [ -d "../pedigree-apps/packages/$package" ]; then
+            verbose "Installing $package from local pedigree-apps..."
+            # Build and install the package from pedigree-apps if possible
+            if [ -f "../pedigree-apps/packages/$package/build.sh" ]; then
+                cd ../pedigree-apps/packages/$package
+                bash build.sh || echo "Warning: Could not build $package from local source."
+                cd $old
+            fi
+        else
+            echo "Warning: Could not install $package from server or local source. Some functionality may be missing."
+        fi
+    fi
+}
+
 echo
 echo "Installing a base set of packages..."
 
-$script_dir/run_pup.sh install pedigree-base || echo "Warning: Could not install pedigree-base. Some functionality may be missing."
-$script_dir/run_pup.sh install libpng || echo "Warning: Could not install libpng. Some functionality may be missing."
-$script_dir/run_pup.sh install libfreetype || echo "Warning: Could not install libfreetype. Some functionality may be missing."
-$script_dir/run_pup.sh install libiconv || echo "Warning: Could not install libiconv. Some functionality may be missing."
-$script_dir/run_pup.sh install zlib || echo "Warning: Could not install zlib. Some functionality may be missing."
+# Install packages - first try from server, then from local pedigree-apps if available
+install_package_from_local "pedigree-base"
+install_package_from_local "libpng"
+install_package_from_local "libfreetype"
+install_package_from_local "libiconv"
+install_package_from_local "zlib"
 
-$script_dir/run_pup.sh install bash || echo "Warning: Could not install bash. Some functionality may be missing."
-$script_dir/run_pup.sh install coreutils || echo "Warning: Could not install coreutils. Some functionality may be missing."
-$script_dir/run_pup.sh install fontconfig || echo "Warning: Could not install fontconfig. Some functionality may be missing."
-$script_dir/run_pup.sh install pixman || echo "Warning: Could not install pixman. Some functionality may be missing."
-$script_dir/run_pup.sh install cairo || echo "Warning: Could not install cairo. Some functionality may be missing."
-$script_dir/run_pup.sh install expat || echo "Warning: Could not install expat. Some functionality may be missing."
-$script_dir/run_pup.sh install mesa || echo "Warning: Could not install mesa. Some functionality may be missing."
-$script_dir/run_pup.sh install gettext || echo "Warning: Could not install gettext. Some functionality may be missing."
+install_package_from_local "bash"
+install_package_from_local "coreutils"
+install_package_from_local "fontconfig"
+install_package_from_local "pixman"
+install_package_from_local "cairo"
+install_package_from_local "expat"
+install_package_from_local "mesa"
+install_package_from_local "gettext"
 
-$script_dir/run_pup.sh install pango || echo "Warning: Could not install pango. Some functionality may be missing."
-$script_dir/run_pup.sh install glib || echo "Warning: Could not install glib. Some functionality may be missing."
-$script_dir/run_pup.sh install libpcre || echo "Warning: Could not install libpcre. Some functionality may be missing."
-$script_dir/run_pup.sh install harfbuzz || echo "Warning: Could not install harfbuzz. Some functionality may be missing."
-$script_dir/run_pup.sh install libffi || echo "Warning: Could not install libffi. Some functionality may be missing."
-$script_dir/run_pup.sh install dialog || echo "Warning: Could not install dialog. Some functionality may be missing."
+install_package_from_local "pango"
+install_package_from_local "glib"
+install_package_from_local "libpcre"
+install_package_from_local "harfbuzz"
+install_package_from_local "libffi"
+install_package_from_local "dialog"
 
 # Install GCC to pull in shared libstdc++.
-$script_dir/run_pup.sh install gcc || echo "Warning: Could not install gcc. Some functionality may be missing."
+install_package_from_local "gcc"
 
 set -e
 
