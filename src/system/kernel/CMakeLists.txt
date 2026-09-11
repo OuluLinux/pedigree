@@ -428,14 +428,49 @@ set(LOG_SRCS
 
 # TODO: no-debugger builds need to not pull in quite as much debugger stuff
 
-add_library(kernel_shared SHARED
-    ${KERNEL_SRCS} ${PROCESSOR_SRCS} ${MACHINE_SRCS} ${UDIS86_SRCS} ${X86EMU_SRCS} ${HASH_SRCS} ${SLAM_SRCS} ${LOG_SRCS} ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)
-target_compile_options(kernel_shared PRIVATE
-    $<$<COMPILE_LANGUAGE:C>:-w ${GENERIC_CFLAGS} ${KERNEL_CFLAGS}>
-    $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>)
-target_compile_definitions(kernel_shared PRIVATE -D__UD_STANDALONE__)
-target_link_libraries(kernel_shared PRIVATE ${GENERIC_LINKFLAGS} ${GENERIC_KERNEL_LINKFLAGS} ${ARCH_KERNEL_LINKFLAGS})
-target_include_directories(kernel_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+# Build kernel_shared with specific memory-conscious configuration
+# Split the build into smaller chunks to avoid linker memory issues
+add_library(kernel_shared_objects OBJECT
+    ${KERNEL_SRCS})
+add_library(kernel_shared_processor OBJECT
+    ${PROCESSOR_SRCS})
+add_library(kernel_shared_machine OBJECT
+    ${MACHINE_SRCS})
+add_library(kernel_shared_udis86 OBJECT
+    ${UDIS86_SRCS})
+add_library(kernel_shared_x86emu OBJECT
+    ${X86EMU_SRCS})
+add_library(kernel_shared_hash OBJECT
+    ${HASH_SRCS})
+add_library(kernel_shared_slam OBJECT
+    ${SLAM_SRCS})
+add_library(kernel_shared_log OBJECT
+    ${LOG_SRCS})
+add_library(kernel_shared_shim OBJECT
+    ${CMAKE_CURRENT_SOURCE_DIR}/sharedshim.cc)
+
+# Apply compile options to all object libraries
+foreach(obj_lib kernel_shared_objects kernel_shared_processor kernel_shared_machine
+              kernel_shared_udis86 kernel_shared_x86emu kernel_shared_hash
+              kernel_shared_slam kernel_shared_log kernel_shared_shim)
+    target_compile_options(${obj_lib} PRIVATE
+        $<$<COMPILE_LANGUAGE:C>:-w ${GENERIC_CFLAGS} ${KERNEL_CFLAGS}>
+        $<$<COMPILE_LANGUAGE:CXX>:-w ${GENERIC_CXXFLAGS} ${GENERIC_KERNEL_CXXFLAGS}>)
+    target_compile_definitions(${obj_lib} PRIVATE -D__UD_STANDALONE__)
+    target_include_directories(${obj_lib} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+endforeach()
+
+# Create the static library instead of shared to avoid linker memory issues
+add_library(kernel_shared STATIC
+    $<TARGET_OBJECTS:kernel_shared_objects>
+    $<TARGET_OBJECTS:kernel_shared_processor>
+    $<TARGET_OBJECTS:kernel_shared_machine>
+    $<TARGET_OBJECTS:kernel_shared_udis86>
+    $<TARGET_OBJECTS:kernel_shared_x86emu>
+    $<TARGET_OBJECTS:kernel_shared_hash>
+    $<TARGET_OBJECTS:kernel_shared_slam>
+    $<TARGET_OBJECTS:kernel_shared_log>
+    $<TARGET_OBJECTS:kernel_shared_shim>)
 
 if (PEDIGREE_ARCH_TARGET STREQUAL "X64")
     add_compile_options(

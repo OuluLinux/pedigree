@@ -6,6 +6,11 @@
 *.tar.xz.*
 *.tar.gz
 *.tar.gz.*
+*.bak
+*.backup
+*.prev
+*.prev*
+*.with_fix
 *.pyc
 *.sln
 *.sublime-workspace
@@ -50,3 +55,13 @@ coverage/
 .pup-version
 .sconf_temp
 venv
+
+# Maestro state
+.maestro/
+
+# Extracted toolchain source trees
+binutils-*/
+gcc-*/
+gcc/
+nasm-*/
+external/libtool-*/

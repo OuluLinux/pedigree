@@ -19,6 +19,7 @@ my $gcc_libcpp_install = "";
 
 # Handle special arguments. These are given to change the behaviour of the script, or to
 # work around issues with specific operating systems.
+my $quiet_mode = 0;
 for(my $i = 2; $i < @ARGV; $i++)
 {
     if($ARGV[$i] eq "osx-compat")
@@ -35,6 +36,10 @@ for(my $i = 2; $i < @ARGV; $i++)
     {
         $gcc_libcpp_make = "all-target-libstdc++-v3";
         $gcc_libcpp_install = "install-target-libstdc++-v3";
+    }
+    elsif($ARGV[$i] eq "quiet")
+    {
+        $quiet_mode = 1;
     }
 }
 
@@ -137,6 +142,20 @@ my @compile = ( {'dir' => "nasm-$nasm_version",
 ###################################################################################
 # Script start.
 
+# Define output subroutines
+sub quiet_print {
+    my $message = shift;
+    if (!$quiet_mode) {
+        print $message;
+    }
+}
+
+sub error_print {
+    # Error messages should always be shown, even in quiet mode
+    my $message = shift;
+    print $message;
+}
+
 $ENV{CC} = "";
 $ENV{CXX} = "";
 $ENV{AS} = "";
@@ -158,8 +177,8 @@ die "Please use target '[arch]-pedigree'." unless $target =~ /(i686|x86_64|arm|a
 
 # Firstly, find out where to store the compilers.
 unless (-l "./compilers/dir") {
-  print "This appears to be the first time you've compiled this checkout. Where should I look for / store my compilers?\n";
-  print "<not interactive, using $dir>\n";
+  quiet_print "This appears to be the first time you've compiled this checkout. Where should I look for / store my compilers?\n";
+  quiet_print "<not interactive, using $dir>\n";
   chomp $dir;
  `mkdir -p $dir`;
   # Convert relative path to be relative from compilers/ directory
@@ -167,7 +186,7 @@ unless (-l "./compilers/dir") {
   $rel_dir =~ s|^\./|../|;  # Convert ./foo to ../foo for relative symlink
   my $stdout = `ln -s $rel_dir ./compilers/dir`;
   if (length $stdout) {
-    print "That directory wasn't valid.\n";
+    error_print "That directory wasn't valid.\n";
     exit 1;
   }
 }
@@ -216,7 +235,7 @@ goto SYMLINKS if $all_installed;
 `mkdir -p ./compilers/dir/dl_cache`;
 `mkdir -p ./compilers/dir/build_tmp`;
 
-print "Downloading/extracting: ";
+quiet_print "Downloading/extracting: ";
 # Download everything we need to.
 foreach (@download) {
   my %download = %$_;
@@ -231,26 +250,26 @@ foreach (@download) {
     }
 
     # Created directory doesn't exist, create it.
-    print "$download{name} ";
+    quiet_print "$download{name} ";
     unless (-f "./compilers/dir/dl_cache/$download{filename}") {
       my $stdout = `cd ./compilers/dir/dl_cache; wget $download{url} 2>&1`;
       if ($? != 0) {
-        print "Failed (download).\n";
-        print $stdout;
+        quiet_print "Failed (download).\n";
+        quiet_print $stdout;
         exit 1;
       }
     }
     `cd ./compilers/dir/build_tmp; ln -f ../dl_cache/$download{filename} ./; $download{extract}`;
     if ($? != 0) {
-      print "Failed (extract).\n";
+      error_print "Failed (extract).\n";
       exit 1;
     }
   }
 }
-print "\n";
+quiet_print "\n";
 
 # Patch everything we need to.
-print "Patching: ";
+quiet_print "Patching: ";
 foreach (@patch) {
   my %patch = %$_;
 
@@ -263,13 +282,13 @@ foreach (@patch) {
     # Clean up files that the patch will create, to avoid conflicts
     `cd ./compilers/dir/build_tmp/$patch{cwd}; rm -f gcc/config/pedigree.h gcc/config/t-pedigree ld/emulparams/pedigree_*.sh 2>/dev/null`;
 
-    print "$patch{name} ";
+    quiet_print "$patch{name} ";
     my $stdout = `cd ./compilers/dir/build_tmp/$patch{cwd}; patch $patch{flags} < $prefix/compilers/$patch{input} 2>&1 && touch .patched`;
     if ($? != 0) {
-      print "\nFailed - output:\n$stdout";
-      print "\nThis error often occurs when the patch files are incompatible with the downloaded source code version.";
-      print "\nYou may need to update the patch files in the compilers/ directory to be compatible with the downloaded version.";
-      print "\nTry removing compilers/dir and running the build again, or check if updated patches are available.";
+      error_print "\nFailed - output:\n$stdout";
+      error_print "\nThis error often occurs when the patch files are incompatible with the downloaded source code version.";
+      error_print "\nYou may need to update the patch files in the compilers/ directory to be compatible with the downloaded version.";
+      error_print "\nTry removing compilers/dir and running the build again, or check if updated patches are available.";
       `rm -r ./compilers/dir/build_tmp/build`;
       exit 1;
     }
@@ -300,33 +319,36 @@ if (-f "$gcc_src/gcc/config.gcc")
   {
     system("cd $gcc_src && patch -N -p1 < $prefix/compilers/pedigree-gcc.patch && touch .patched");
     $has_pedigree = system("grep -q pedigree $gcc_src/gcc/config.gcc") == 0;
-    die "Failed to apply pedigree GCC patch\n" unless $has_pedigree;
+    if (!$has_pedigree) {
+        error_print "Failed to apply pedigree GCC patch\n";
+        die "Failed to apply pedigree GCC patch\n";
+    }
   }
 }
 
-print "\n";
+quiet_print "\n";
 
 # Run everything we need to.
-print "Running: ";
+quiet_print "Running: ";
 foreach (@command) {
   my %command = %$_;
 
   if ($command{arch} =~ m/($target)|(all)/i) {
-    print "$command{name} ";
+    quiet_print "$command{name} ";
     my $stdout = `cd ./compilers/dir/build_tmp/$command{cwd}; $command{cmd} 2>&1`;
     if ($? != 0) {
-      print "\nFailed - output:\n$stdout";
+      error_print "\nFailed - output:\n$stdout";
       `rm -r ./compilers/dir/build_tmp/build`;
       exit 1;
     }
   }
 }
 
-print "\n";
+quiet_print "\n";
 
 
 # Compile everything we need to.
-print "Compiling:\n";
+quiet_print "Compiling:\n";
 foreach (@compile) {
   my %compile = %$_;
 
@@ -338,10 +360,10 @@ foreach (@compile) {
 
     # Already installed?
     if ($is_installed{$compile{name}}) {
-      print "    $compile{name}: Already installed.\n";
+      quiet_print "    $compile{name}: Already installed.\n";
       next;
     }
-    print "    $compile{name}: Configuring ";
+    quiet_print "    $compile{name}: Configuring ";
     my $build_dir = "./compilers/dir/build_tmp/build";
     my $stdout = `cd ./compilers/dir/build_tmp/; mkdir -p build`;
     if (defined $compile{inplace} and $compile{inplace}) {
@@ -357,7 +379,7 @@ foreach (@compile) {
 
     $stdout = `export PREFIX=$prefix/compilers/dir; export TARGET=$target; cd $actual_build_dir; ../$compile{dir}/configure $compile{configure} 2>&1`;
     if ($? != 0) {
-      print "Failed. Output: $stdout\n";
+      error_print "Failed. Output: $stdout\n";
       exit 1;
     }
     # Create dummy fixincludes Makefile for GCC 9+ cross-compilers
@@ -370,19 +392,19 @@ foreach (@compile) {
       print $fh "\t\@true\n";
       close($fh);
     }
-    print "Compiling ";
+    quiet_print "Compiling ";
     $stdout = `cd $actual_build_dir && make $compile{make} 2>&1`;
     if ($? != 0) {
-      print "Failed. Output: $stdout\n";
+      error_print "Failed. Output: $stdout\n";
       exit 1;
     }
-    print "Installing";
+    quiet_print "Installing";
     $stdout = `cd $actual_build_dir; make $compile{install} 2>&1`;
     if ($? != 0) {
-      print "Failed. Output: $stdout\n";
+      error_print "Failed. Output: $stdout\n";
       exit 1;
     }
-    print "\n";
+    quiet_print "\n";
 
     # Only clean out the build directory if required (helps with libcpp build).
     if ((!defined $compile{clean}) || (defined $compile{clean} and $compile{clean})) {
@@ -393,7 +415,7 @@ foreach (@compile) {
 
 SYMLINKS:
 
-print "Complete; linking crt*.o...\n";
+quiet_print "Complete; linking crt*.o...\n";
 
 # compiler-specific dir
 `ln -sf $prefix/build/musl/lib/crt1.o ./compilers/dir/lib/gcc/$target/$gcc_version/crt1.o`;
@@ -412,7 +434,7 @@ print "Complete; linking crt*.o...\n";
 
 # include-fixed is NOT necessary
 `rm -rf ./compilers/dir/lib/gcc/$target/$gcc_version/include-fixed`;
-print "Done.\n";
+quiet_print "Done.\n";
 
 `rm -rf ./compilers/dir/build_tmp`;
 exit 0;

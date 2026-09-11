@@ -380,8 +380,9 @@ verbose ""
 # Build full kernel
 cd build
 if [ $QUIET_MODE -eq 1 ]; then
-    status "Building kernel (quiet mode)..."
-    if ! env MAKEFLAGS="--quiet" make --quiet >/tmp/kernel_output.txt 2>&1; then
+    status "Building kernel (quiet mode) with reduced parallelism and memory optimizations..."
+    # Limit parallelism and add memory optimizations to avoid linker segfaults
+    if ! env MAKEFLAGS="--quiet -j1 LDFLAGS='-Wl,--reduce-memory-overheads -Wl,--no-as-needed -Wl,--no-keep-memory'" make --quiet >/tmp/kernel_output.txt 2>&1; then
         echo "Build kernel failed. Output:" >&2
         cat /tmp/kernel_output.txt >&2
         rm -f /tmp/kernel_output.txt
@@ -390,7 +391,8 @@ if [ $QUIET_MODE -eq 1 ]; then
         rm -f /tmp/kernel_output.txt
     fi
 else
-    make
+    # Limit parallelism and add memory optimizations to avoid linker segfaults
+    LDFLAGS="-Wl,--reduce-memory-overheads -Wl,--no-as-needed -Wl,--no-keep-memory" make -j1
 fi
 
 cd "$old"

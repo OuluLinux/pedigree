@@ -140,10 +140,11 @@ function(pedigree_module name opts libs)
         $<$<COMPILE_LANGUAGE:C>:${PEDIGREE_MODULE_CFLAGS}>
         $<$<COMPILE_LANGUAGE:CXX>:${PEDIGREE_MODULE_CXXFLAGS} -fno-rtti -fno-exceptions -fno-asynchronous-unwind-tables>)
 
+    # Apply memory-conscious linking flags to avoid segfaults during linking
     if (PEDIGREE_STATIC_DRIVERS)
-        target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS})
+        target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} -Wl,--reduce-memory-overheads -Wl,--no-keep-memory -Wl,--gc-sections)
     else()
-        target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} ${libs} module kernel_shared)
+        target_link_libraries(${name} PRIVATE ${PEDIGREE_MODULE_LINKFLAGS} -Wl,--reduce-memory-overheads -Wl,--no-keep-memory -Wl,--gc-sections ${libs} module kernel_shared)
     endif ()
 
     # Generic set of include directories for modules to find their own headers
@@ -191,7 +192,7 @@ endif ()
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/system/config/sqlite3/sqlite3.c PROPERTIES
     COMPILE_FLAGS "-Wno-cast-function-type -Wno-discarded-qualifiers -Wno-float-equal -Wno-bad-function-cast -Wno-misleading-indentation -Wno-parentheses -Wno-strict-prototypes")
 
-pedigree_module(config "-w;-Os" ""
+pedigree_module(config "-w" "-Os" ""
     ${CMAKE_CURRENT_SOURCE_DIR}/system/config/main.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/config/Config.cc
     ${CMAKE_CURRENT_SOURCE_DIR}/system/config/sqlite3/sqlite3.c
@@ -212,6 +213,11 @@ target_compile_definitions(config PUBLIC
     -DSQLITE_OMIT_TEMPDB=1 -DSQLITE_OMIT_TRACE=1 -DSQLITE_OMIT_UTF16=1
     -DSQLITE_OMIT_WAL=1)
 target_compile_options(config PRIVATE -Wno-implicit-fallthrough)
+
+# Add more aggressive linking options specifically for the config module to avoid segmentation faults
+if (NOT PEDIGREE_STATIC_DRIVERS)
+    set_target_properties(config PROPERTIES LINK_FLAGS "-Wl,--no-keep-memory -Wl,--reduce-memory-overheads -Wl,--gc-sections -Wl,--sort-section=alignment -Wl,--hash-style=gnu")
+endif()
 add_dependencies(config libc)  # TODO: this shouldn't need headers.
 if (PEDIGREE_STATIC_DRIVERS)
     add_dependencies(config embedconfigdb)

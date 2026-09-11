@@ -38,8 +38,13 @@ def main():
     pupConfig = "%s/scripts/pup/pup.conf" % (scriptdir,)
 
     target_arch = 'i686'
+    quiet_mode = False
     if len(sys.argv) > 1:
-        target_arch = sys.argv[1]
+        for arg in sys.argv[1:]:
+            if arg == 'quiet':
+                quiet_mode = True
+            else:
+                target_arch = arg
 
     cfg = ConfigParser()
     cfg.read(pupConfigDefault)
@@ -52,7 +57,8 @@ def main():
     with open(pupConfig, 'w') as f:
         cfg.write(f)
 
-    print("Configuration file '%s' updated." % (pupConfig))
+    if not quiet_mode:
+        print("Configuration file '%s' updated." % (pupConfig))
 
 
 if __name__ == '__main__':

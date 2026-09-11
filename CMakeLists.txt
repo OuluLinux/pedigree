@@ -141,6 +141,10 @@ set(GENERIC_CFLAGS ${GENERIC_CFLAGS_NO_DEPRECATED_COPY})
 # Set up include directories for most targets
 include_directories(src src/system/include)
 
+# Optimize linker flags to reduce memory usage during linking
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--reduce-memory-overheads -Wl,--no-as-needed -Wl,--no-keep-memory")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--reduce-memory-overheads -Wl,--no-as-needed -Wl,--no-keep-memory")
+
 # Always do this regardless of cross-compile state
 BISON_TARGET(KeymapParser
     ${CMAKE_SOURCE_DIR}/src/user/applications/keymap/parser.y

@@ -8,9 +8,54 @@
 # Use English locale for consistent error messages
 export LC_ALL=C.UTF-8
 
+# Parse command line arguments
+CLEAN_ONLY=0
+for arg in "$@"; do
+    case $arg in
+        --clean)
+            CLEAN_ONLY=1
+            shift
+            ;;
+        *)
+            # Ignore other arguments for now
+            ;;
+    esac
+done
+
 old=$(pwd)
 script_dir=$(cd -P -- "$(dirname -- "$0")" && pwd -P) && script_dir=$script_dir
 cd $old
+
+# Function to perform cleanup
+clean_build() {
+    echo "Cleaning build artifacts..."
+
+    # Remove build directories
+    rm -rf build-host
+    rm -rf build
+    rm -rf external
+
+    # Remove compiler build temporary files
+    if [ -d "$script_dir/pedigree-compiler/build_tmp" ]; then
+        rm -rf "$script_dir/pedigree-compiler/build_tmp"
+    fi
+
+    # Remove compiler directory if it exists
+    if [ -L "$script_dir/compilers/dir" ]; then
+        compiler_dir=$(readlink "$script_dir/compilers/dir")
+        if [ -d "$compiler_dir/build_tmp" ]; then
+            rm -rf "$compiler_dir/build_tmp"
+        fi
+    fi
+
+    echo "Build artifacts cleaned."
+}
+
+# If --clean flag is provided, clean and exit
+if [ $CLEAN_ONLY -eq 1 ]; then
+    clean_build
+    exit 0
+fi
 
 COMPILER_DIR=$script_dir/pedigree-compiler
 . $script_dir/build-etc/travis.sh
